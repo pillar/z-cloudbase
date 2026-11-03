@@ -87,6 +87,15 @@
 | Magic link：一次性、哈希存储、回调限制、继续授权、TOTP 账号不发链接、限流 | identity：`magic-link.test.ts`；e2e：`08-sign-in-methods` | 本地已验证（outbox）；真实投递**远程未验证** |
 | 登录页与邮件中英双语、品牌值校验 | identity：`i18n-brand.test.ts`；console：`brand.test.ts`；e2e：`08-sign-in-methods` | 本地已验证 |
 
+## v3.1：封禁、代登录、用户导出、产品 Webhook（PRD §21.5–21.6）
+
+| 项目 | 证据 | 状态 |
+|---|---|---|
+| 封禁 / 解封：所有登录方式在会话创建处拦截，撤销会话与产品 token，refresh 被拒，api 返回 `user_banned`，到期自动解封；社交登录回跳显示封禁提示 | identity：`user-admin.test.ts`；api：`admin-user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 代登录：仅 owner、需已开启 TOTP 且 5 分钟内验证、不可代登录团队成员、60 分钟上限、token 带 `act`、控制台与账号安全操作被拒、停止后恢复 owner 会话、全程审计 | identity：`user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 用户 CSV 导出：按产品环境、邮箱需显式请求、公式注入防护、审计、跨产品隔离 | api：`admin-user-admin.test.ts`、`admin-isolation.test.ts` | 本地已验证 |
+| Webhook：Standard Webhooks 签名（参考向量）、SSRF 校验、重试退避与放弃、投递记录、跨产品隔离、`verifyWebhook()` | webhooks / security / api / consumer 单元测试；e2e：`08-user-admin-webhooks`（本地接收端） | 本地已验证；真实出站请求**远程未验证** |
+
 ## 派生前的远程验证摘要（2026-10-09）
 
 本代码派生自一个私有 POC。该 POC 的同一套 Worker 曾部署到 Cloudflare（Workers Free 套餐）验证过：跨产品 SSO 与越权 401、事件经 Queue 进入 Analytics Engine 并可由 AE SQL 查询、R2 S3 预签名直传（含 CORS 预检）、Turnstile 拦截与 siteverify 拒绝路径、Resend 发信、控制台 Workers Static Assets 与管理员 TOTP。当时发现并修复的问题（PATCH 的 CORS、按队列角色路由、AE 数据集可配置、AE 不支持 `uniq`、认证限流改用 D1 计数）都已包含在本仓库中。之后的去品牌化、自部署脚本与初始化流程没有做过远程验证。
@@ -96,7 +105,7 @@
 - 真实 Google / Apple 登录（含 Apple `form_post` 在真实浏览器 `SameSite=Lax` 下的表现）：只用 mock IdP 验证过（D10）。
 - R2 S3 兼容预签名（`R2PresignSigner`）：派生前远程验证过；需要部署方提供 R2 S3 API token。
 - Analytics Engine 写入与 AE SQL 查询：派生前远程验证过；本地用 D1 替身；查询需要部署方提供 `CF_ANALYTICS_API_TOKEN`。
-- 认证限流：Cloudflare Rate Limiting 绑定实测基本不拦截，已改为 D1 固定窗口计数（迁移 `0014_auth_rate_counters`，键为 HMAC，consumer cron 清理过期窗口），派生前远程验证过 429 + `Retry-After`。采集入口（600 批次 / 分钟）仍用绑定，属软限制；多个部署在同一账号时共享该绑定的 namespace。
+- 认证限流：Cloudflare Rate Limiting 绑定实测基本不拦截，已改为 D1 固定窗口计数（迁移 `0014_auth_rate_counters`，键为 HMAC，consumer cron 清理过期窗口），派生前远程验证过 429 + `Retry-After`。采集入口（600 批次 / 分钟）仍用绑定，属软限制；v3.1 起部署脚本按前缀派生 namespace，同一账号的多个部署互不影响。
 - Turnstile：可选；真人通过挑战后的放行路径未验证。
 - 压测、延迟与成本基准、成本告警：未做。
 - 备份与恢复演练：未做。

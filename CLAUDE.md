@@ -30,6 +30,7 @@ packages/security   JWT 校验、RBAC、凭证解析、脱敏
 packages/sdk-web    @z-cloudbase/web
 packages/sdk-server @z-cloudbase/server
 packages/testing    Mock OIDC Provider、测试夹具
+packages/webhooks   Webhook outbox 与投递（identity / api / consumer 共用）
 database/migrations 平台 D1 迁移（Drizzle）
 scripts/            运营脚本（platform-deploy、platform-destroy、platform-reset-admin、dev、build-sdk）；scripts/test 用 node --test
 tests/e2e           跨 Worker 端到端、越权测试

@@ -2,7 +2,7 @@
 
 > Translation of [integration-guide.md](integration-guide.md) (Chinese, the maintained original). If the two differ, the Chinese version wins.
 >
-> Version: SDK 0.1.0 · updated 2026-11-03
+> Version: SDK 0.2.0 · updated 2026-11-04
 > This is the only instruction a product needs to integrate with this platform (a self-hosted instance of z-cloudbase). `https://id.example.com` / `https://api.example.com` / `https://console.example.com` below are placeholders: replace them with the addresses of your deployment (printed at the end of `pnpm platform:deploy`, or ask the platform administrator). Follow the "Execution checklist" in order; every step has a verifiable result. If you see behavior that differs from this document, record the request's `x-request-id` and the error code and report it to the platform team instead of working around it.
 
 ## 0. Execution checklist (the AI completes these in order)
@@ -62,15 +62,15 @@ The SDK is not published to npm yet; use the tgz packages provided by the platfo
 
 ```sh
 # The platform team runs this in the z-cloudbase repository root; the output is in dist-sdk/
-pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.1.0.tgz, dist-sdk/z-cloudbase-server-0.1.0.tgz
+pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.2.0.tgz, dist-sdk/z-cloudbase-server-0.2.0.tgz
 
 # In your product repository: put the tgz files in vendor/ and commit them (so CI installs are reproducible)
 mkdir -p vendor && cp <platform repo>/dist-sdk/z-cloudbase-*.tgz vendor/
-npm i ./vendor/z-cloudbase-web-0.1.0.tgz          # frontend
-npm i ./vendor/z-cloudbase-server-0.1.0.tgz       # backend (Node 20+ / Cloudflare Workers / any runtime with fetch)
+npm i ./vendor/z-cloudbase-web-0.2.0.tgz          # frontend
+npm i ./vendor/z-cloudbase-server-0.2.0.tgz       # backend (Node 20+ / Cloudflare Workers / any runtime with fetch)
 ```
 
-- Both packages are ESM and ship TypeScript types; `@z-cloudbase/web` depends only on `jose` and is about 34 KB minified (13 KB gzip).
+- Both packages are ESM and ship TypeScript types; `@z-cloudbase/web` depends only on `jose` and is about 37 KB minified (14 KB gzip, including jose; modules you do not use can be imported separately via subpaths such as `@z-cloudbase/web/analytics`).
 - Upgrade: replace the tgz files in `vendor/` and run `npm i` again.
 - Clients that do not use JS (native apps, backends in other languages): call the HTTP API directly (section 6).
 
@@ -89,7 +89,7 @@ export const platform = createClient({
   publishableKey: 'pk_dev_xxxxxxxx',
   redirectUri: `${location.origin}/`,          // must be a redirect URI registered in the console
   storage: localStorage,                       // see below
-  autocapture: { pageViews: true, sessions: true }, // optional: automatic page_view / session_start
+  autocapture: { pageViews: true, sessions: true }, // optional, see 4.6
 });
 ```
 
@@ -121,7 +121,9 @@ logoutButton.onclick = async () => { await platform.auth.signOut(); render(null)
 platform.auth.onAuthStateChange((user) => render(user ? 'signed-in' : null));
 ```
 
-- The sign-in page is provided by the platform (email + password, sign-up, password recovery). Your product **must not** build its own password form or collect passwords.
+- The sign-in page is provided by the platform (email + password, sign-up, password recovery; when enabled by the deployment also Passkey, email sign-in links, Google / Apple). Your product **must not** build its own password form or collect passwords. Every method returns to the same `redirectUri` after sign-in, so product code does not need to tell them apart.
+- The sign-in page is shown in Chinese or English according to the browser language, and the user can switch on the page. To force a language, send the user to `https://id.example.com/login?lang=zh` (or `en`); the choice is remembered.
+- The deployment's sign-up mode (PRD §21.2) decides whether new users can register: `open` lets anyone register; `invite` lets only people who received a platform invitation register; `closed` no longer creates new accounts. In the latter two modes, a user without an account stays on the sign-in page, and the product should show "contact the platform administrator for an invitation".
 - The callback page can simply be the home page; what matters is that it handles `?code=`.
 
 ### 4.3 Guest mode (games and other "play first, register later" products)
@@ -138,6 +140,7 @@ if (!(await platform.auth.getUser())) {
 - **Upgrade to a real account**: send the user to `https://id.example.com/link` (new tab or redirect). After they set an email and password, the `user_id` and all product data **stay unchanged**. When they come back, call `platform.auth.signInWithRedirect()` once (SSO, no input needed) to refresh the token; `getUser().anonymous` is then `false`.
 - Guests inactive for 30 days are reclaimed by the platform; prompt users in your game to link an email in time.
 - The product's visibility must be "public", otherwise guests cannot join automatically.
+- Only deployments whose sign-up mode is `open` allow new guests; under `invite` / `closed`, `/guest` returns 403 (`details.reason = "signup_closed"`), and users who already have a session are not affected. In that case the game should fall back to regular sign-in (`signInWithRedirect()`).
 
 ### 4.4 The current user
 
@@ -181,7 +184,38 @@ platform.analytics.reset();     // call on sign-out
 - Properties: at most 50 keys, ≤ 8 KB serialized; values may only be strings (≤1024), numbers, booleans or null. Do not put email addresses, phone numbers, tokens or other personal or sensitive data in them.
 - The SDK sends in batches automatically (every 5 seconds by default, also when the page is hidden / closed) and deduplicates (the same `event_id` counts once within 24 hours).
 - Events whose schema is not registered in the console: dev/staging accept them normally; prod handles them according to the environment's "unknown events" policy.
-- Reports are in the console's "Analytics" (daily active users, event volume, top events), with a delay of about 1–2 minutes.
+- Reports are in the console's "Analytics" (overview, funnels, retention, breakdowns, event details, export), with a delay of about 1–2 minutes.
+- Browser / OS / device type and country are inferred by the platform from the request; **do not** put them in properties yourself (they will not be treated as those dimensions).
+
+**Autocapture** (`createClient({ autocapture: {...} })`, all off by default):
+
+| Option | Event | Description |
+|---|---|---|
+| `pageViews: true` | `page_view` | Properties `path`, `referrer`, `title`; since 0.2.0 `path` / `referrer` do not include the query string (hash routes starting with `#/` are kept) |
+| `sessions: true` | `session_start` | A new `session_id` after 30 minutes without events |
+| `errors: true` | `js_error` | Uncaught exceptions and unhandled Promise rejections: `message`, `type`, `stack` (first 1000 characters), `source`, `line`, `col`, `path`; tokens are masked and URL query strings removed; the same error is reported only once per page, at most 10 per page |
+| `webVitals: true` | `web_vital` | `name` (LCP / INP / CLS / FCP / TTFB), `value` (milliseconds; CLS has no unit), `rating`; each metric is reported once when the page is hidden. INP is the slowest interaction on the page (an approximation) |
+| `clicks: true` or `'attribute'` | `element_click` | Links, buttons and elements with `data-zcb-track="name"`: `tag`, `selector`, `text` (≤ 64 characters), `href`, `label`. `'attribute'` captures only elements with the attribute; elements whose ancestor has `data-zcb-no-track` are not captured; **input values are never read** |
+
+**User consent**:
+
+```ts
+platform.analytics.optOut();      // the user declines: pending events and the anonymous ID are cleared; afterwards neither track nor autocapture sends anything; the choice is remembered
+platform.analytics.optIn();       // the user agrees
+platform.analytics.hasOptedOut(); // current state
+// To "collect only after consent": createClient({ ..., analytics: { consent: 'denied' } }), then call optIn() once the user agrees
+```
+
+**User properties** (visible only in this product and environment; other products cannot see them):
+
+```ts
+await platform.analytics.setUserProperties({ plan: 'pro', level: 12 }); // requires sign-in; a null value deletes the key
+platform.analytics.identify({ plan: 'pro' });                            // after sign-in, ties events to the user and sets properties at the same time (does not throw)
+```
+
+- Keys `[A-Za-z0-9_]`, ≤ 64 characters; values are scalars, strings ≤ 256 characters; at most 20 keys and 2 KB per user. Exceeding this returns `payload_too_large` and existing properties are unchanged.
+- Guests (anonymous visitors) have no user properties; put them in event properties if needed.
+- Used by the "user property" filter of the console's funnels / retention, and for viewing by user in event details.
 
 ### 4.7 Frontend error reporting
 
@@ -245,14 +279,64 @@ claims.anon;  // whether the user is a guest
 
 Verification is local (the JWKS is fetched only the first time / on key rotation) and does not call the platform API. A token of another product or another environment always fails verification.
 
+**Impersonation (platform support staff troubleshooting as a user)**: a platform owner can start a time-limited (at most 60 minutes), fully audited impersonation in the console. Tokens issued during it carry the RFC 8693 `act` claim: `claims.act = { sub: '<the owner's user_id>' }` (the user object returned by the frontend `onAuthStateChange` / `handleRedirectCallback` accordingly has an `actor` field). `claims.sub` is still the impersonated user. The product decides how to treat it:
+
+```ts
+if (claims.act) {
+  // e.g. forbid sensitive operations such as payments, withdrawals, data deletion; or reject everything
+  return res.status(403).json({ error: 'not allowed during a support session' });
+}
+```
+
+The platform itself guarantees that an impersonation session cannot enter the console, cannot change the user's password, email, sign-in methods or two-factor authentication, and cannot export or delete the account. After a user is banned by the platform, already issued access tokens get 403 `user_banned` when calling the platform API, refresh fails (`invalid_grant`), and signing in again is rejected; your backend, verifying locally with `verifyToken`, will still accept the token for up to its remaining 15 minutes — subscribe to the `user.banned` webhook below when you need it to take effect immediately.
+
+### 5.4 Webhooks (the platform pushes user events)
+
+In the console, "Product → Webhooks", add an endpoint for an environment: the URL must be `https://` (only the `dev` environment allows `http://localhost`) and must not point to an internal / loopback address; tick the events to subscribe to; after saving, the signing secret `whsec_…` is shown only once, so put it in a server-side environment variable.
+
+| Event | When | `data` |
+|---|---|---|
+| `user.joined` | The user completes sign-in authorization in this product environment for the first time | `{ user_id, anonymous, first_seen_at }` |
+| `user.upgraded` | A guest linked their first sign-in method (`user_id` unchanged) | `{ user_id, provider }` |
+| `user.deleted` | Deletion completed: `scope: "account"` the user deleted the platform account; `"product"` the user left this product and the platform data has been cleaned up | `{ user_id, scope }` |
+| `user.banned` / `user.unbanned` | The platform bans / unbans (including automatic unban on expiry, `reason: "expired"`) | `{ user_id, expires_at }` / `{ user_id, reason }` |
+
+The request body is always `{ id, type, timestamp, product_id, env, data }` and contains no personal information such as email addresses. When you receive `user.deleted`, delete that user's business data on your side.
+
+```ts
+import { verifyWebhook } from '@z-cloudbase/server';
+
+// verify with the raw request body, and parse only after verification passes
+app.post('/webhooks/platform', express.text({ type: '*/*' }), async (req, res) => {
+  let event;
+  try {
+    event = await verifyWebhook({ secret: process.env.PLATFORM_WEBHOOK_SECRET!, headers: req.headers, body: req.body });
+  } catch {
+    return res.sendStatus(401);
+  }
+  if (await alreadyProcessed(event.id)) return res.sendStatus(204); // at-least-once delivery: deduplicate by event.id
+  if (event.type === 'user.deleted') await deleteBusinessData(event.data.user_id);
+  res.sendStatus(204);
+});
+```
+
+- Signatures follow [Standard Webhooks](https://www.standardwebhooks.com/): `webhook-id`, `webhook-timestamp`, `webhook-signature` (`v1,` + HMAC-SHA256); any language can verify per that specification. A timestamp more than 5 minutes away from the current time is treated as a replay.
+- Only 2xx counts as success; 10-second timeout, redirects are not followed. After a failure, delivery is retried after 15 minutes, 30 minutes, 1, 2, 4, 8 and 12 hours, 8 attempts in total (about 28 hours) before giving up. Return 2xx quickly and move slow processing to a queue.
+- After rotating the secret, the old secret keeps signing in parallel for 24 hours (the signature header carries two signatures); update the environment variable within that window.
+- The console can "send a test" (the `webhook.test` event) and shows the latest 100 deliveries (status code, duration, error, first 256 characters of the response).
+
 ### 5.2 Server-side logs and events
 
 ```ts
 platform.logs.info('order paid', { order_id: 'o_123', amount: 30 }, { request_id: reqId });
 platform.logs.error('payment webhook failed', { provider: 'x' });
-platform.analytics.trackServerEvent('purchase', { amount: 30 }, { eventId: orderId }); // a business ID as eventId prevents double counting
+platform.analytics.track('purchase', { amount: 30 }, { eventId: orderId, userId: claims.sub }); // a business ID (UUID) as eventId prevents double counting
+await platform.analytics.setUserProperties(claims.sub, { plan: 'pro' });
 await platform.flush(); // call before the request ends; in Cloudflare Workers use ctx.waitUntil(platform.flush())
 ```
+
+- `userId` is optional: only users with a valid membership in this product are accepted (usually the `sub` from `verifyToken`); otherwise that event is rejected (`membership_required`). The platform stores only its pseudonym within this product, not the raw ID. `trackServerEvent` is the old name of `track` and still works.
+- Server events have no browser / device / country dimensions (a server's request does not represent the user's device). When you need the frontend's anonymous ID, pass it as `anonymousId`.
 
 Fields such as `password`, `secret`, `token`, `authorization`, `cookie`, `api_key` in log attributes are redacted automatically; still do not log personal information on purpose.
 
@@ -283,7 +367,8 @@ All requests go to `https://api.example.com/v1/…`. The error body is always `{
 | `POST /v1/storage/downloads` | same | `{ object_id, ttl_seconds? }` → a signed download address |
 | `GET /v1/storage/objects?bucket=&cursor=&limit=` | same | List files |
 | `DELETE /v1/storage/objects/{id}` | same | Delete |
-| `POST /v1/events/batch` | pk (optionally with a user token) or sk (`events:write`) | `{ events: [{ event_id(uuid), event_name, occurred_at(ISO), properties?, anonymous_id?, session_id? }] }`, ≤100 events / 256 KB |
+| `POST /v1/events/batch` | pk (optionally with a user token) or sk (`events:write`) | `{ events: [{ event_id(uuid), event_name, occurred_at(ISO), properties?, anonymous_id?, session_id?, user_id? }] }`, ≤100 events / 256 KB; `user_id` is allowed for sk only and must be a member of this product (otherwise that event gets `membership_required`); events from a pk carrying `user_id` are rejected (`user_id_not_allowed`) |
+| `POST /v1/events/user-properties` | pk + user token, or sk (`events:write`) | `{ properties: {k: scalar or null}, user_id? }` (`user_id` is for sk only and then required) → `{ properties }` (all properties after merging) |
 | `POST /v1/logs/batch` | pk or sk (`logs:write`) | `{ logs: [{ level, timestamp, message, attributes?, request_id? }] }`, ≤100 entries / 512 KB |
 
 User tokens are obtained with the standard OIDC authorization code + PKCE (S256): the authorization and token endpoints are listed at `https://id.example.com/.well-known/openid-configuration`; `client_id` = `{product_id}.{env}`; you must send `resource=urn:platform:{product_id}.{env}`; scope `openid offline_access`. The access token lives 15 minutes; the refresh token 30 days and is rotated on every use (the old one is invalid immediately, and a replay revokes the whole family).
@@ -297,6 +382,8 @@ User tokens are obtained with the standard OIDC authorization code + PKCE (S256)
 | access token / refresh token | 15 minutes / 30 days (rotating) |
 | Upload signed URL | valid for 10 minutes |
 | Event time | `occurred_at` no earlier than 7 days ago and no later than 5 minutes ahead |
+| User properties | ≤ 20 keys and ≤ 2 KB per user per product environment |
+| Analytics data retention | 90 days by default (deployment configuration); raw event archive 90 days by default, the console can export NDJSON / CSV (≤ 31 days per export) |
 
 ## 8. Acceptance checklist (confirm each item after integration and report)
 
@@ -309,10 +396,13 @@ User tokens are obtained with the standard OIDC authorization code + PKCE (S256)
 - [ ] (Error reporting) throw an error on purpose; the console's "Logs" can find it.
 - [ ] (Storage) upload → list → downloaded content is identical → after deletion the download address stops working.
 - [ ] Searching the repository and the frontend build output finds no `sk_`.
+- [ ] (Webhooks) after "send a test" in the console, your receiver verifies it with `verifyWebhook`; after modifying the request body, verification fails.
+- [ ] (Impersonation) decide and implement how your backend handles tokens carrying the `act` claim (at minimum, forbid sensitive operations).
 
 ## 9. Current limitations (tell the human owner)
 
-- The available sign-in methods depend on the deployment configuration: guests are always available; email + password sign-up needs the operator to configure a mail service (verification emails); Google / Apple need credentials configured by the operator and have not been verified against the real providers.
+- The available sign-in methods depend on the deployment configuration: guests are available only when the sign-up mode is `open`; email + password sign-up by default needs the operator to configure a mail service (verification emails; Resend / SMTP / Cloudflare Email Service); email sign-in links appear only when mail is configured; Passkey is enabled by default; Google / Apple need credentials configured by the operator. Real email delivery, real Passkey devices and real Google / Apple have not been verified remotely (tested locally with stand-ins).
 - "BFF sign-in" for server-rendered apps (`platform.bff(...)`) needs a confidential client, which the console cannot create yet, so it is not usable; use frontend sign-in + backend `verifyToken`.
 - Native apps (system browser + custom-scheme callback) have not been verified.
 - The SDK has a 15-second default timeout and retries retryable errors automatically.
+- Funnels / retention are computed per "user" (the user when signed in, the device's anonymous ID when not); before and after sign-in they are not merged into one person automatically. In production, the "breakdown" reports are based on Analytics Engine, and distinct-user counts are approximate under high traffic.

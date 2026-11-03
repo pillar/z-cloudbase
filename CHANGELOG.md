@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Platform v3.1 (PRD §21). SDKs `@z-cloudbase/web` and `@z-cloudbase/server` are at 0.2.0.
+
+### Added
+
+- Operations: `pnpm platform:destroy` (plan, typed confirmation, R2 lifecycle for non-empty buckets); per-prefix rate-limit namespace; D1 Time Travel restore point recorded before upgrade migrations; deployed version and commit in `.deploy/<prefix>.json`; `pnpm dev` (local stack + console in one command).
+- Repository: GitHub Actions CI and tag-triggered SDK release with npm provenance, Dependabot, `SECURITY.md`, `CONTRIBUTING.md`, issue/PR templates, English integration guide.
+- Mail: SMTP (implicit TLS) and Cloudflare Email Service transports besides Resend (`EMAIL_TRANSPORT`).
+- Sign-up policy: `SIGNUP_MODE=open|invite|closed`, `REQUIRE_EMAIL_VERIFICATION`; invitations managed by owners in the console.
+- Passkeys (count as a second factor for the console) and magic-link sign-in.
+- Branding (`BRAND_LOGO_URL`, `BRAND_PRIMARY_COLOR`, `SIGNIN_TAGLINE`) and bilingual (zh/en) identity pages and emails.
+- User administration: platform-wide ban/unban, owner-only support impersonation (TOTP step-up, 60 min, audited, `act` claim on tokens), per-environment user CSV export.
+- Product webhooks (Standard Webhooks signatures, retries with backoff, delivery log, SSRF guard) and `verifyWebhook()` in the server SDK.
+- Analytics collection: error, Web Vitals and click autocapture, consent (`optOut` / `optIn`), user properties, server-side `track()`, server-derived browser / OS / device / country.
+- Analytics: funnels, retention cohorts, property breakdown and filters, event explorer, per-product retention settings.
+- Raw event archive in R2 (gzip NDJSON by date / product / env) with NDJSON / CSV export.
+
+### Changed
+
+- With mail configured, email verification is required by default: unverified users of an upgraded deployment verify on their next password sign-in.
+- `page_view` paths and referrers no longer include query strings.
+- Event queue messages carry up to 25 events (the consumer still accepts the old single-event messages).
+- `pnpm platform:reset-admin --disable-2fa` also removes passkeys.
+
 ## [0.1.0] - 2026-11-04
 
 First open-source release.
