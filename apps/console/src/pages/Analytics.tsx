@@ -101,7 +101,7 @@ export function Analytics({ product }: TabProps) {
   const [opened, setOpened] = useState<ReadonlySet<TabId>>(new Set(['overview']));
   const p: AnalyticsTabProps = { product, env, from, to };
   const views: Record<TabId, ReactNode> = {
-    overview: <Overview {...p} />,
+    overview: <Overview {...p} active={tab === 'overview'} />,
     funnels: <Funnels {...p} />,
     retention: <Retention {...p} />,
     breakdown: <Breakdown {...p} />,
@@ -148,7 +148,8 @@ export function Analytics({ product }: TabProps) {
   );
 }
 
-function Overview({ product, env, from, to }: AnalyticsTabProps) {
+/** `active`: the chart is only mounted while the tab is shown (recharts cannot size itself in a hidden panel). */
+function Overview({ product, env, from, to, active }: AnalyticsTabProps & { active: boolean }) {
   const t = useT(messages);
   const f = useFormat();
   const q = useLoad(
@@ -156,9 +157,10 @@ function Overview({ product, env, from, to }: AnalyticsTabProps) {
     `${product.id}|${env}|${from}|${to}`,
   );
 
+  // Users take the brand accent; events a neutral series color that stays distinct from any brand color.
   const config = {
     users: { label: t.users, color: 'var(--chart-1)' },
-    events: { label: t.events, color: 'var(--chart-2)' },
+    events: { label: t.events, color: 'var(--chart-neutral)' },
   } satisfies ChartConfig;
   const daily = q.data?.daily ?? [];
   const latest = daily.at(-1);
@@ -182,7 +184,7 @@ function Overview({ product, env, from, to }: AnalyticsTabProps) {
           <Section title={t.trendTitle} description={t.trendDescription}>
             {daily.length === 0 ? (
               <EmptyState title={t.noData} />
-            ) : (
+            ) : !active ? null : (
               <ChartContainer config={config} className="aspect-auto h-72 w-full">
                 <AreaChart data={daily} margin={{ left: 4, right: 4 }}>
                   <CartesianGrid vertical={false} />
