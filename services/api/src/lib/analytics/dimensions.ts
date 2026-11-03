@@ -1,7 +1,7 @@
 import { ApiError, BUILTIN_DIMENSIONS, USER_PROPERTY_KEY_RE, type BuiltinDimension } from '@z-cloudbase/contracts';
 
 // Breakdown / filter dimensions (PRD §21.8) and their storage columns. Only names from this closed set ever
-// reach SQL; values are always bound (D1) or escaped (AE, see aeString).
+// reach SQL; values are always bound (D1) or, for AE, restricted to plain literals (see aeString).
 
 export interface ResolvedDimension {
   /** Public name: a built-in dimension or `prop:<key>`. */
@@ -73,5 +73,15 @@ export function userPropertyClause(productEnvId: string, actorExpr: string, f: U
   };
 }
 
-/** String literal for Analytics Engine SQL. REMOTE-UNVERIFIED: the docs do not specify escaping; ClickHouse rules. */
-export const aeString = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+/**
+ * Values that may appear as a string literal in Analytics Engine SQL: no quote, backslash or control
+ * character. AE's escaping rules are not documented, so nothing is escaped; unsafe values are refused
+ * (filters, 400) or left out of the query (values read back from AE), never interpolated.
+ */
+export const aeLiteralSafe = (v: string) => !/['\\\u0000-\u001f\u007f]/.test(v);
+
+/** String literal for Analytics Engine SQL; throws for values that are not aeLiteralSafe (defense in depth). */
+export function aeString(v: string): string {
+  if (!aeLiteralSafe(v)) throw new ApiError('validation_failed', 'Value cannot be used in an analytics query (quote, backslash or control character)');
+  return `'${v}'`;
+}

@@ -134,6 +134,11 @@ describe('breakdown and explorer', () => {
     expect(f.body.rows.find((x: Json) => x.value === '/home')).toEqual({ value: '/home', events: 2, users: 2 });
     expect(JSON.stringify(f.body)).not.toContain('FR');
     expect(await errorCode(await api(w.tok.adminA, 'GET', `/products/${w.a}/analytics/breakdown?env=prod&by=ip`))).toBe('validation_failed');
+    // Filter values reach Analytics Engine SQL in production: quotes and backslashes are refused, not escaped.
+    for (const v of ["/it's", "x' OR '1'='1", 'a\\b']) {
+      const res = await api(w.tok.adminA, 'GET', `/products/${w.a}/analytics/breakdown?env=prod&by=country&filter=${encodeURIComponent(`path:${v}`)}`);
+      expect([v, res.status, await errorCode(res)]).toEqual([v, 400, 'validation_failed']);
+    }
   });
 
   it('lists recent events newest first with a cursor, actor filter and that user\'s properties', async () => {

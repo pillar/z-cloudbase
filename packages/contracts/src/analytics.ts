@@ -33,7 +33,8 @@ export interface RetentionResult {
 
 export interface BreakdownResult {
   by: string;
-  rows: Array<{ value: string; events: number; users: number }>;
+  /** `users` is null when it could not be counted (production: a value Analytics Engine SQL cannot quote, PRD §21.8). */
+  rows: Array<{ value: string; events: number; users: number | null }>;
   source: 'analytics_engine' | 'd1_substitute';
   from?: string;
   to?: string;

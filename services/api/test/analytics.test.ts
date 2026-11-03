@@ -105,3 +105,44 @@ describe('Analytics Engine SQL AnalyticsQuery (fake fetch; remote-unverified)', 
       .rejects.toThrow(/500/);
   });
 });
+
+describe('Analytics Engine breakdown: no value reaches the SQL text unless it is a plain literal (remote-unverified)', () => {
+  const dims = { by: { name: 'path', column: 'path', ae: 'blob6' }, productEnvId: 'an_a.prod', fromDay: 20500, toDay: 20501, limit: 20 };
+  function fake(values: string[]) {
+    const calls: string[] = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      const sql = String(init.body);
+      calls.push(sql);
+      const data = sql.includes('AS users')
+        ? values.filter((v) => sql.includes(`'${v}'`)).map((value) => ({ value, users: '1' }))
+        : values.map((value) => ({ value, events: '3' }));
+      return Response.json({ data });
+    }) as unknown as typeof fetch;
+    return { calls, fetchFn };
+  }
+
+  it('refuses filter values with quotes, backslashes or control characters before querying', async () => {
+    for (const value of ["x' OR '1'='1", 'a\\', 'line\nbreak']) {
+      const { calls, fetchFn } = fake([]);
+      await expect(aeAnalyticsQuery({ accountId: 'a', apiToken: 't', fetch: fetchFn })
+        .breakdown({ ...dims, filters: [{ dim: { name: 'path', column: 'path', ae: 'blob6' }, value }] }))
+        .rejects.toMatchObject({ code: 'validation_failed' });
+      expect(calls).toHaveLength(0);
+    }
+  });
+
+  it('never puts end-user values returned by the first query into the second; their user count is unknown (null)', async () => {
+    const evil = ["/x') OR 1=1 --", '/back\\slash'];
+    const { calls, fetchFn } = fake(['/home', ...evil]);
+    const r = await aeAnalyticsQuery({ accountId: 'a', apiToken: 't', fetch: fetchFn }).breakdown({ ...dims, filters: [] });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("'/home'");
+    for (const v of evil) expect(calls[1]).not.toContain(v);
+    expect(calls[1]).not.toContain('\\');
+    expect(r.rows).toEqual([
+      { value: '/home', events: 3, users: 1 },
+      { value: evil[0], events: 3, users: null },
+      { value: evil[1], events: 3, users: null },
+    ]);
+  });
+});

@@ -182,7 +182,7 @@ export function Breakdown(p: AnalyticsTabProps) {
                             <span className="w-16 text-right tabular-nums">{f.number(r.events)}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{f.number(r.users)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.users == null ? '–' : f.number(r.users)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

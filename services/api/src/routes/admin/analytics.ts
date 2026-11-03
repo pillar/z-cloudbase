@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../../context.ts';
 import { funnel, retention } from '../../lib/analytics/actors.ts';
-import { parseFilter, parseUserPropertyFilter, resolveDimension } from '../../lib/analytics/dimensions.ts';
+import { aeLiteralSafe, parseFilter, parseUserPropertyFilter, resolveDimension } from '../../lib/analytics/dimensions.ts';
 import { exploreEvents } from '../../lib/analytics/explorer.ts';
 import { exportStream, listExportObjects, suppressedKeys } from '../../lib/analytics/export.ts';
 import { analyticsQuery } from '../../lib/analytics/index.ts';
@@ -86,6 +86,8 @@ analyticsRoutes.get('/products/:id/analytics/breakdown', async (c) => {
   const declared = await customDimensions(c.env.INGEST_DB, s.productEnvId);
   const filters = many(c, 'filter').map((f) => parseFilter(f, declared));
   if (filters.length > 3) throw new ApiError('validation_failed', 'At most 3 filters');
+  // Production answers from Analytics Engine SQL, where values are literals: the same rule everywhere.
+  if (filters.some((f) => !aeLiteralSafe(f.value))) throw new ApiError('validation_failed', 'Breakdown filter values cannot contain quotes or backslashes');
   const range = dayRange(q, analyticsRetentionDays(c.env));
   const result = await analyticsQuery(c.env).breakdown({
     productEnvId: s.productEnvId, fromDay: range.fromDay, toDay: range.toDay, by: resolveDimension(q.by, declared), event: q.event, filters, limit: q.limit,

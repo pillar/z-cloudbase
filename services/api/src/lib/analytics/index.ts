@@ -1,7 +1,7 @@
 // Analytics read interface used by admin routes (owned by the ingest/consumer module).
 // Production: Workers Analytics Engine SQL API. Local/test: D1 substitute (PRD §19.10).
 import { ANALYTICS_QUERY_WINDOW_DAYS, parseClientId, type BreakdownResult } from '@z-cloudbase/contracts';
-import { aeString, type Filter, type ResolvedDimension } from './dimensions.ts';
+import { aeLiteralSafe, aeString, type Filter, type ResolvedDimension } from './dimensions.ts';
 import { DAY_MS as DAY } from './range.ts';
 
 export interface AnalyticsSummary {
@@ -166,12 +166,19 @@ export function aeAnalyticsQuery(cfg: AeConfig): AnalyticsQuery {
          GROUP BY value ORDER BY events DESC LIMIT ${q.limit} FORMAT JSON`,
       );
       // Distinct users only for the values shown (AE SQL has no JOIN; count(DISTINCT) on a blob is approximate under sampling).
-      const users = events.length === 0 ? [] : await sql<{ value: string; users: string | number }>(
+      // The values come from end users' events: only plain literals are put into this query; the others get
+      // `users: null` (unknown) rather than an escaped literal whose meaning AE does not document.
+      const listed = events.map((r) => String(r.value)).filter(aeLiteralSafe);
+      const users = listed.length === 0 ? [] : await sql<{ value: string; users: string | number }>(
         `SELECT ${q.by.ae} AS value, count(DISTINCT blob4) AS users FROM ${dataset} WHERE ${where} AND blob4 != ''
-         AND ${q.by.ae} IN (${events.map((r) => aeString(String(r.value))).join(', ')}) GROUP BY value FORMAT JSON`,
+         AND ${q.by.ae} IN (${listed.map(aeString).join(', ')}) GROUP BY value FORMAT JSON`,
       );
       const u = new Map(users.map((r) => [r.value, Number(r.users)]));
-      return { by: q.by.name, rows: events.map((r) => ({ value: r.value, events: Number(r.events), users: u.get(r.value) ?? 0 })), source: 'analytics_engine' };
+      return {
+        by: q.by.name,
+        rows: events.map((r) => ({ value: r.value, events: Number(r.events), users: aeLiteralSafe(String(r.value)) ? u.get(r.value) ?? 0 : null })),
+        source: 'analytics_engine',
+      };
     },
   };
 }
