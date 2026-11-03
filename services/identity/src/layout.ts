@@ -17,10 +17,10 @@ export const tr = <E extends { Bindings: Env }>(c: Context<E>): UiMessages => ui
 
 // Light and dark (prefers-color-scheme); the brand color stays the accent of both.
 const STYLE = `:root{color-scheme:light dark;--fg:#18181b;--muted:#52525b;--bg:#fff;--line:#e4e4e7;--field:#fff;--err-fg:#b91c1c;--err-bg:#fef2f2;--err-line:#fecaca}
-@media (prefers-color-scheme:dark){:root{--fg:#f4f4f5;--muted:#a1a1aa;--bg:#09090b;--line:#3f3f46;--field:#18181b;--err-fg:#fca5a5;--err-bg:#450a0a;--err-line:#7f1d1d}}
+@media (prefers-color-scheme:dark){:root{--fg:#f4f4f5;--muted:#a1a1aa;--bg:#09090b;--line:#3f3f46;--field:#18181b;--err-fg:#fca5a5;--err-bg:#450a0a;--err-line:#7f1d1d;--link:color-mix(in srgb,var(--brand) 55%,#fff)}}
 body{font-family:system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;line-height:1.5;color:var(--fg);background:var(--bg)}
 header{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}header .lang{margin-left:auto}
-a{color:var(--brand)}h1{font-size:1.6rem;margin:.5rem 0 1rem}h2{font-size:1.15rem;margin:1.75rem 0 .5rem}
+a{color:var(--link,var(--brand))}h1{font-size:1.6rem;margin:.5rem 0 1rem}h2{font-size:1.15rem;margin:1.75rem 0 .5rem}
 button{background:var(--brand);color:#fff;border:0;border-radius:.375rem;padding:.5rem .9rem;cursor:pointer;font:inherit;font-size:.9rem}
 button[disabled]{opacity:.6}button.secondary{background:transparent;color:var(--fg);border:1px solid var(--line)}
 button.danger{background:transparent;color:var(--err-fg);border:1px solid var(--err-line)}
