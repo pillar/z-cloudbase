@@ -6,7 +6,7 @@ import { AUTH_RATE_PER_ACCOUNT_PER_MIN, AUTH_RATE_PER_IP_PER_MIN } from '@z-clou
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { TURNSTILE_DUMMY_TOKEN } from '../src/turnstile.ts';
-import { PASSWORD, call, uniqueEmail } from './helpers.ts';
+import { PASSWORD, awayFromWindowEdge, call, uniqueEmail } from './helpers.ts';
 
 const solved = { 'cf-turnstile-response': TURNSTILE_DUMMY_TOKEN };
 
@@ -22,6 +22,7 @@ async function expectRateLimited(res: Response) {
 
 describe('auth rate limiting', () => {
   it(`allows ${AUTH_RATE_PER_IP_PER_MIN} sign-in attempts per IP per minute, then answers 429`, async () => {
+    await awayFromWindowEdge();
     const headers = { 'cf-connecting-ip': ip(), ...solved };
     for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN; i++) {
       const res = await call('/api/auth/sign-in/email', { headers, json: { email: uniqueEmail(), password: PASSWORD } });
@@ -36,6 +37,7 @@ describe('auth rate limiting', () => {
   });
 
   it('counts concurrent attempts exactly: a burst from one IP gets no more than the limit through', async () => {
+    await awayFromWindowEdge();
     const headers = { 'cf-connecting-ip': ip(), ...solved };
     const burst = await Promise.all(Array.from({ length: AUTH_RATE_PER_IP_PER_MIN + 5 }, () =>
       call('/api/auth/sign-in/email', { headers, json: { email: uniqueEmail(), password: PASSWORD } })));
@@ -54,6 +56,7 @@ describe('auth rate limiting', () => {
   });
 
   it(`allows ${AUTH_RATE_PER_ACCOUNT_PER_MIN} attempts per account per minute across IPs`, async () => {
+    await awayFromWindowEdge();
     const email = uniqueEmail('target');
     for (let i = 0; i < AUTH_RATE_PER_ACCOUNT_PER_MIN; i++) {
       expect((await call('/api/auth/sign-in/email', { headers: solved, json: { email, password: 'guess' + i } })).status).toBe(401);

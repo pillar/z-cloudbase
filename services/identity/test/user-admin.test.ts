@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IdentityRpc } from '../src/index.ts';
 import { actClaimFor } from '../src/user-admin.ts';
 import { setWebhookFetch } from '../src/webhooks.ts';
-import { CookieJar, PASSWORD, auditRows, call, seedProduct, signIn, signUp, uniqueEmail } from './helpers.ts';
+import { auditRows, awayFromWindowEdge, call, CookieJar, PASSWORD, seedProduct, signIn, signUp, uniqueEmail } from './helpers.ts';
 import { CONSOLE, enrollTotp } from './mfa.ts';
 import { authorizeUrl, pkcePair, randomToken, refresh, setupClients, ssoToProduct } from './oauth-flow.ts';
 
@@ -387,6 +387,7 @@ describe('impersonation (PRD §21.5.2)', () => {
     const other = await requestImpersonation(admin.userId, userId);
     const headers = { 'cf-connecting-ip': `203.0.113.${Math.floor(Math.random() * 250) + 1}-${crypto.randomUUID().slice(0, 4)}` };
     const statuses: number[] = [];
+    await awayFromWindowEdge();
     for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN + 1; i++) {
       statuses.push((await call(`/impersonation/${other}/start`, { jar: admin.jar, headers, form: { code: 'x' } })).status);
     }

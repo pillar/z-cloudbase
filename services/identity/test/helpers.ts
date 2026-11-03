@@ -133,3 +133,12 @@ export async function auditRows(action: string, targetId: string) {
     .all<{ actor_type: string; actor_id: string; product_id: string | null; env: string | null; metadata: string }>();
   return results.map((r) => ({ ...r, metadata: JSON.parse(r.metadata) as Record<string, unknown> }));
 }
+
+/**
+ * The limits count in fixed one-minute windows (PRD §19.6): a burst that straddles a window edge is
+ * legitimately counted in two windows. Start window-sensitive tests well inside a window.
+ */
+export async function awayFromWindowEdge(marginMs = 10_000) {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < marginMs) await new Promise((r) => setTimeout(r, left + 50));
+}

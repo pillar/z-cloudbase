@@ -4,7 +4,7 @@ import { AUTH_RATE_PER_IP_PER_MIN } from '@z-cloudbase/contracts';
 import { env } from 'cloudflare:workers';
 import { decodeJwt } from 'jose';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { CookieJar, call, outbox, signUp, uniqueEmail, useEnv } from './helpers.ts';
+import { awayFromWindowEdge, call, CookieJar, outbox, signUp, uniqueEmail, useEnv } from './helpers.ts';
 import { enrollTotp } from './mfa.ts';
 import { authorizeUrl, exchangeCode, pkcePair, randomToken, setupClients, type TokenResponse } from './oauth-flow.ts';
 
@@ -114,6 +114,7 @@ describe('magic link', () => {
   it('is limited per IP like the other sign-in paths', async () => {
     const ip = `10.77.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
     const statuses: number[] = [];
+    await awayFromWindowEdge();
     for (let i = 0; i <= AUTH_RATE_PER_IP_PER_MIN; i++) statuses.push((await requestLink(uniqueEmail(`rl${i}`), '', ip)).res.status);
     expect(statuses.slice(0, AUTH_RATE_PER_IP_PER_MIN).every((s) => s === 200)).toBe(true);
     expect(statuses.at(-1)).toBe(429);

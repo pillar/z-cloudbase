@@ -5,7 +5,7 @@ import { AUTH_RATE_PER_IP_PER_MIN } from '@z-cloudbase/contracts';
 import { env } from 'cloudflare:workers';
 import { decodeJwt } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CookieJar, call, signUp } from './helpers.ts';
+import { awayFromWindowEdge, call, CookieJar, signUp } from './helpers.ts';
 import { authorizeUrl, exchangeCode, pkcePair, randomToken, setupClients, type TokenResponse } from './oauth-flow.ts';
 
 beforeAll(async () => {
@@ -75,6 +75,7 @@ describe('GET /guest', () => {
 
   it(`is rate limited per IP like sign-up (${AUTH_RATE_PER_IP_PER_MIN} per minute)`, async () => {
     const ip = `10.8.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    await awayFromWindowEdge();
     for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN; i++) expect((await guestEntry(new CookieJar(), ip)).res.status).toBe(302);
     expect((await guestEntry(new CookieJar(), ip)).res.status).toBe(429);
   });
