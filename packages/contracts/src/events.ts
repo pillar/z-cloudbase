@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EventContext } from './analytics.ts';
 import { EVENT_NAME_RE } from './ids.ts';
 
 // Client-supplied fields only. product_id / environment / user_id are derived
@@ -15,6 +16,11 @@ export const EventInput = z.object({
   session_id: z.string().min(1).max(128).optional(),
   properties: z.record(z.string().max(64), Scalar).default({}),
   schema_version: z.number().int().min(1).default(1),
+  /**
+   * Service keys only (PRD §21.7): attribute the event to a user with an active membership in the
+   * key's product. Converted to `user_key` in the api worker; never queued or stored.
+   */
+  user_id: z.string().startsWith('usr_').max(64).optional(),
 });
 export type EventInput = z.infer<typeof EventInput>;
 
@@ -44,14 +50,35 @@ export const EventBatchResponse = z.object({
 });
 export type EventBatchResponse = z.infer<typeof EventBatchResponse>;
 
-/** Message placed on the events queue; identity fields are server-derived. */
-export interface EventQueueMessage {
+/** Queued event: the client fields without `user_id` (raw user ids never leave the API worker). */
+export type QueuedEvent = Omit<EventInput, 'user_id'>;
+
+/**
+ * v3.0 message: one event per message. Still accepted by the consumer (messages queued before an
+ * upgrade); the api no longer sends it.
+ */
+export interface EventQueueMessageV1 {
   product_id: string;
   environment: string;
   /** HMAC(user_id, product_salt) — raw user_id never leaves the API worker (PRD §19.8). */
   user_key: string | null;
   received_at: string;
-  event: EventInput;
+  event: QueuedEvent;
+}
+
+/**
+ * v3.1 message (PRD §21.7): up to EVENTS_PER_QUEUE_MESSAGE accepted events of one request, with the
+ * server-derived context and the product env's declared custom dimension keys at ingest time.
+ */
+export interface EventQueueMessage {
+  v: 2;
+  product_id: string;
+  environment: string;
+  received_at: string;
+  context: EventContext;
+  /** Declared custom dimension keys (≤ 3), in order: dim1..dim3. */
+  dimensions: string[];
+  events: Array<{ user_key: string | null; event: QueuedEvent }>;
 }
 
 /**

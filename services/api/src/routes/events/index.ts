@@ -3,6 +3,9 @@ import {
   EVENT_MAX_PROPERTIES_BYTES, EVENT_MAX_PROPERTIES_KEYS, EventBatchRequest, EventInput, EventPropertySchema, type BatchRejection, type BatchWarning,
   type EventBatchResponse, type EventQueueMessage,
 } from '@z-cloudbase/contracts';
+import { requestContext } from '../../lib/events/context.ts';
+import { activeMembers, customDimensions, packEventMessages } from '../../lib/events/ingest.ts';
+import { userPropertiesRoute } from './user-properties.ts';
 import { userKey } from '@z-cloudbase/security';
 import { Hono } from 'hono';
 import type { AppEnv } from '../../context.ts';
@@ -27,10 +30,12 @@ const safeJson = (s: string): unknown => {
 const reject = (index: number, code: string, message: string): BatchRejection => ({ index, code, message });
 
 /** Per-event checks beyond the schema: time window and properties size. */
-function checkEvent(raw: unknown, index: number, now: number): EventInput | BatchRejection {
+function checkEvent(raw: unknown, index: number, now: number, kind: 'publishable' | 'service'): EventInput | BatchRejection {
   const parsed = EventInput.safeParse(raw);
   if (!parsed.success) return reject(index, 'validation_failed', parsed.error.issues[0]?.message ?? 'Invalid event');
   const e = parsed.data;
+  // A browser attributes events to a user only through that user's token (PRD §21.7).
+  if (e.user_id !== undefined && kind !== 'service') return reject(index, 'user_id_not_allowed', 'user_id is accepted only with a service key');
   const t = Date.parse(e.occurred_at);
   if (t < now - EVENT_MAX_PAST_MS || t > now + EVENT_MAX_FUTURE_MS) return reject(index, 'occurred_at_out_of_range', 'occurred_at outside the accepted window');
   if (Object.keys(e.properties).length > EVENT_MAX_PROPERTIES_KEYS) return reject(index, 'validation_failed', `At most ${EVENT_MAX_PROPERTIES_KEYS} properties`);
@@ -55,7 +60,7 @@ eventsRoutes.post(
     const rejected: BatchRejection[] = [];
     const checked: Array<{ index: number; event: EventInput }> = [];
     body.data.events.forEach((raw, index) => {
-      const r = checkEvent(raw, index, now);
+      const r = checkEvent(raw, index, now, cred.kind);
       if ('code' in r) rejected.push(r);
       else checked.push({ index, event: r });
     });
@@ -101,6 +106,17 @@ eventsRoutes.post(
       });
     }
 
+    // Service-key events may name a user; only users with an active membership in this product are accepted.
+    const named = [...new Set(candidates.flatMap(({ event }) => (event.user_id ? [event.user_id] : [])))];
+    if (named.length > 0) {
+      const members = await activeMembers(c.env.DB, cred.productId, named);
+      candidates = candidates.filter(({ index, event }) => {
+        if (!event.user_id || members.has(event.user_id)) return true;
+        rejected.push(reject(index, 'membership_required', 'user_id has no active membership in this product'));
+        return false;
+      });
+    }
+
     // Dedupe within the window; an expired-but-unpurged row is taken over, a live one counts as duplicate.
     let fresh = candidates;
     if (candidates.length > 0) {
@@ -122,16 +138,23 @@ eventsRoutes.post(
 
     if (fresh.length > 0) {
       const user = c.get('user');
-      const key = user ? await userKey(user.userId, cred.userKeySalt) : null;
-      const receivedAt = new Date(now).toISOString();
-      const messages: EventQueueMessage[] = fresh.map(({ event }) => ({
-        product_id: cred.productId, environment: cred.env, user_key: key, received_at: receivedAt, event,
-      }));
+      const tokenKey = user ? await userKey(user.userId, cred.userKeySalt) : null;
+      const keys = new Map<string, string>();
+      for (const id of named) keys.set(id, await userKey(id, cred.userKeySalt));
+      const messages: EventQueueMessage[] = packEventMessages(
+        {
+          v: 2, product_id: cred.productId, environment: cred.env, received_at: new Date(now).toISOString(),
+          context: requestContext(c.req.raw, cred.kind), dimensions: await customDimensions(c.env.INGEST_DB, cred.productEnvId),
+        },
+        fresh.map(({ event: { user_id, ...event } }) => ({ user_key: user_id ? keys.get(user_id)! : tokenKey, event })),
+      );
       try {
         await sendInChunks(c.env.EVENTS_QUEUE, messages);
       } catch (err) {
         // Release the dedupe claim of everything not enqueued so the client's retry is not dropped as duplicate.
-        const unsent = fresh.slice(err instanceof QueueSendError ? err.sent : 0);
+        const sentMessages = err instanceof QueueSendError ? err.sent : 0;
+        const sentEvents = messages.slice(0, sentMessages).reduce((n, m) => n + m.events.length, 0);
+        const unsent = fresh.slice(sentEvents);
         console.error(JSON.stringify({ request_id: c.get('requestId'), msg: 'events enqueue failed', unsent: unsent.length, error: String(err) }));
         try {
           await c.env.INGEST_DB.batch(unsent.map(({ event }) =>
@@ -151,4 +174,14 @@ eventsRoutes.post(
     if (warnings.length > 0) res.warnings = warnings;
     return c.json(res, 202);
   },
+);
+
+// POST /v1/events/user-properties — PRD §21.7.
+eventsRoutes.post(
+  '/user-properties',
+  withCredential({ allow: ['publishable', 'service'] }),
+  serviceScopeOnly('events:write'),
+  withUser({ required: false }),
+  ingestRateLimit('user_properties'),
+  userPropertiesRoute,
 );

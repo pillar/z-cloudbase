@@ -13,7 +13,7 @@ export function queueRole(name: string): QueueRole | null {
   return m ? (`${m[1]}${m[2] ? 'Dlq' : ''}` as QueueRole) : null;
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
+export const pad = (n: number) => String(n).padStart(2, '0');
 
 /** `yyyy/mm/dd` (UTC) path segment; with `hour`, `yyyy/mm/dd/hh`. */
 export function datePath(iso: string, hour = false): string {

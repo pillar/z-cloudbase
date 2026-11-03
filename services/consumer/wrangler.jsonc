@@ -6,7 +6,12 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "vars": { "DEPLOY_ENV": "local" },
+  "vars": {
+    "DEPLOY_ENV": "local",
+    // PRD §21.8 / §21.9: analytics rows (1–90 days) and raw event archive (1–3650 days) retention.
+    "ANALYTICS_RETENTION_DAYS": "90",
+    "ARCHIVE_RETENTION_DAYS": "90"
+  },
   "d1_databases": [
     { "binding": "DB", "database_name": "z-cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" },
     { "binding": "INGEST_DB", "database_name": "z-cloudbase-ingest", "database_id": "00000000-0000-4000-8000-000000000002", "migrations_dir": "../../database/ingest-migrations" }
@@ -27,7 +32,8 @@
     ],
     "consumers": [
       { "queue": "z-cloudbase-logs", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "z-cloudbase-logs-dlq" },
-      { "queue": "z-cloudbase-events", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "z-cloudbase-events-dlq" },
+      // ≤ 10 messages × ≤ 25 events = 250 Analytics Engine data points per invocation (the AE limit, PRD §21.7).
+      { "queue": "z-cloudbase-events", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "z-cloudbase-events-dlq" },
       // DLQ consumers persist dead messages to the archive for inspection and replay.
       { "queue": "z-cloudbase-logs-dlq", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3 },
       { "queue": "z-cloudbase-events-dlq", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3 }

@@ -1,4 +1,4 @@
-import { ANALYTICS_QUERY_WINDOW_DAYS, ANONYMOUS_USER_RETENTION_DAYS, UPLOAD_URL_TTL_S, newId, parseClientId } from '@z-cloudbase/contracts';
+import { ANONYMOUS_USER_RETENTION_DAYS, UPLOAD_URL_TTL_S, newId, parseClientId } from '@z-cloudbase/contracts';
 import { systemAudit } from './audit.ts';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -57,11 +57,6 @@ export async function reapStalePendingUploads(env: Env, now = Date.now(), maxPag
     if (results.length < REAP_PAGE) break;
   }
   return reaped;
-}
-
-/** Daily: events older than the query window are no longer readable, so the D1 substitute drops them. */
-export async function pruneSubstitute(env: Env, now = Date.now()): Promise<void> {
-  await env.INGEST_DB.prepare('DELETE FROM events_substitute WHERE occurred_at < ?').bind(now - ANALYTICS_QUERY_WINDOW_DAYS * DAY_MS).run();
 }
 
 /**

@@ -399,12 +399,12 @@ describe('scheduled handler', () => {
     expect(req).toBeNull();
   });
 
-  it('prunes substitute events older than the query window on the daily run', async () => {
+  it('prunes analytics rows older than the retention window on the daily run', async () => {
     const insert = (id: string, at: number) =>
-      baseEnv.INGEST_DB.prepare('INSERT INTO events_substitute (product_env_id, event_id, event_name, occurred_at, received_at) VALUES (?, ?, ?, ?, ?)').bind('cr_a.prod', id, 'x', at, at);
+      baseEnv.INGEST_DB.prepare('INSERT INTO event_rows (product_env_id, event_id, event_name, occurred_at, received_at) VALUES (?, ?, ?, ?, ?)').bind('cr_a.prod', id, 'x', at, at);
     await baseEnv.INGEST_DB.batch([insert('ancient', Date.now() - 100 * DAY), insert('fresh', Date.now() - DAY)]);
     await run(DAILY_CRON, envWith(rpc()));
-    const left = (await baseEnv.INGEST_DB.prepare('SELECT event_id FROM events_substitute WHERE product_env_id = ?').bind('cr_a.prod').all<{ event_id: string }>()).results;
+    const left = (await baseEnv.INGEST_DB.prepare('SELECT event_id FROM event_rows WHERE product_env_id = ?').bind('cr_a.prod').all<{ event_id: string }>()).results;
     expect(left.map((l) => l.event_id)).toEqual(['fresh']);
   });
 });
