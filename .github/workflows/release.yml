@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag such as v0.1.0: builds the SDK tarballs, publishes @z-cloudbase/web and @z-cloudbase/server
+# Push a tag such as v0.2.0: builds the SDK tarballs, publishes @z-cloudbase/web and @z-cloudbase/server
 # to npm (with provenance; needs the NPM_TOKEN repository secret) and attaches the tarballs to a GitHub release.
 on:
   push:

@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-04
+
 Platform v3.1 (PRD §21). SDKs `@z-cloudbase/web` and `@z-cloudbase/server` are at 0.2.0.
 
 ### Added
@@ -50,5 +52,6 @@ First open-source release.
 - Operator scripts: `pnpm platform:deploy` (idempotent install / upgrade), `pnpm platform:reset-admin`, `pnpm bootstrap:local`.
 - Integration guide for product teams (`docs/integration-guide.md`).
 
-[Unreleased]: https://github.com/pillar/z-cloudbase/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pillar/z-cloudbase/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pillar/z-cloudbase/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pillar/z-cloudbase/releases/tag/v0.1.0

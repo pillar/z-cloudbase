@@ -746,7 +746,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 - 管理员密码至少 12 位；脚本生成 24 位随机密码（去掉易混字符），只在终端显示一次。
 
 
-## 21. v3.1 扩展（2026-11-04，实施中）
+## 21. v3.1 扩展（2026-11-04，本地已实施，版本 0.2.0）
 
 范围由产品负责人于 2026-11-04 确认（D18）。每一小节先写规格再改代码；规格写明默认值、限额、错误码、权限与审计动作。真实 Cloudflare 部署验证不在本轮范围（本地已验证 / 远程待验证）。
 
@@ -769,7 +769,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 **升级前的 D1 恢复点**：已存在的部署在应用迁移前，对 platform / ingest 两个库执行 `wrangler d1 time-travel info <db> --json`，取得当前 bookmark，写入 `.deploy/<prefix>.json` 的 `restorePoints`（时间、升级前的版本与 commit、两个 bookmark）。迁移失败时和部署结束的摘要里都打印 `wrangler d1 time-travel restore <db> --bookmark=<b>`（破坏性：覆盖当前数据；Free 套餐保留 7 天，Paid 30 天；还原后需把代码回到记录的 commit 再部署）。首次创建（库刚建好）与 `--dry-run` 不记录；取不到 bookmark 时只警告、不阻止升级。
 
 **版本与发布**
-- 版本号 `0.1.0`（根 `package.json` 的 `version`），变更记录 `CHANGELOG.md`（Keep a Changelog）。部署记录 `.deploy/<prefix>.json` 保存 `version`、`commit`（工作区有改动时加 `-dirty`）、`deployedAt`。
+- 版本号与根 `package.json` 的 `version` 一致（v3.1 为 `0.2.0`，与两个 SDK 相同），变更记录 `CHANGELOG.md`（Keep a Changelog）。部署记录 `.deploy/<prefix>.json` 保存 `version`、`commit`（工作区有改动时加 `-dirty`）、`deployedAt`。
 - CI（`.github/workflows/ci.yml`，push / PR）：安装（frozen lockfile）、`pnpm -r typecheck`、`pnpm -r test`、`pnpm test:scripts`、`pnpm sdk:pack`；`pnpm test:e2e` 为独立 job。Node 24，pnpm 取自 `packageManager`。依赖更新用 Dependabot（npm 每周分组，github-actions 每周）。
 - 发布（`release.yml`，tag `v*`）：校验 tag 与版本一致，构建 SDK tarball，以 npm provenance 发布 `@z-cloudbase/web` 与 `@z-cloudbase/server`（secret `NPM_TOKEN`），tarball 附到 GitHub Release。本仓库不执行真实发布。
 
