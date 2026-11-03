@@ -27,6 +27,7 @@ import { oauthPolicy } from './oauth-policy.ts';
 import { revokeOAuthTokens } from './revoke.ts';
 import { verifiedIdTokens } from './social.ts';
 import { systemPrincipal } from './system.ts';
+import { userAdmin } from './user-admin.ts';
 
 export const AUTH_BASE_PATH = '/api/auth';
 export const OIDC_SCOPES = ['openid', 'profile', 'email', 'offline_access'] as const;
@@ -221,6 +222,9 @@ export function authOptions(deps: AuthDeps) {
       }),
       systemPrincipal(),
       oauthPolicy({ db: deps.db, issuer: deps.issuer, requireAdmin2fa: deps.requireAdmin2fa ?? false }),
+      // Bans and support impersonation (PRD §21.5). Before accountPolicy: its account hook must still see
+      // an upgrading guest as anonymous.
+      userAdmin({ db: deps.db }),
       accountPolicy({ db: deps.db }),
       verifiedIdTokens(),
     ],

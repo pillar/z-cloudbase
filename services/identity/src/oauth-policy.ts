@@ -1,12 +1,13 @@
 // Platform policy around the engine's OAuth provider (PRD §4.2, §6.2, §19.4). Better Auth keeps
 // the whole protocol; this plugin only adds product admission (products + product_memberships),
 // membership bookkeeping and the refresh-token reuse audit through engine hooks.
-import { CONSOLE_CLIENT_ID, parseClientId } from '@z-cloudbase/contracts';
+import { CONSOLE_CLIENT_ID, parseClientId, type Environment } from '@z-cloudbase/contracts';
 import { getOAuthProviderApi } from '@better-auth/oauth-provider';
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { writeAudit } from './audit.ts';
 import { consoleMfaStep } from './mfa-policy.ts';
+import { deliverSoon, envJoinStatements } from './webhooks.ts';
 
 type Decision = { allow: true } | { allow: false; reason: string };
 
@@ -19,21 +20,29 @@ type Decision = { allow: true } | { allow: false; reason: string };
 export async function productAccess(db: D1Database, productId: string, userId: string, join: boolean): Promise<Decision> {
   const row = await db
     .prepare(
-      `SELECT p.status, p.visibility, m.status AS membership FROM products p
-       LEFT JOIN product_memberships m ON m.product_id = p.id AND m.user_id = ? WHERE p.id = ?`,
+      `SELECT p.status, p.visibility, m.status AS membership,
+         EXISTS (SELECT 1 FROM "user" u WHERE u.id = ? AND u.banned = 1 AND (u.banExpires IS NULL OR u.banExpires > ?)) AS banned
+       FROM products p LEFT JOIN product_memberships m ON m.product_id = p.id AND m.user_id = ? WHERE p.id = ?`,
     )
-    .bind(userId, productId)
-    .first<{ status: string; visibility: string; membership: string | null }>();
+    .bind(userId, new Date().toISOString(), userId, productId)
+    .first<{ status: string; visibility: string; membership: string | null; banned: number }>();
   if (!row || row.status !== 'active') return { allow: false, reason: 'product is not available' };
+  // Platform-wide ban (PRD §21.5.1): no authorization, code exchange or refresh for any product.
+  if (row.banned) return { allow: false, reason: 'user is banned' };
   if (row.membership === 'active') return { allow: true };
   if (row.membership) return { allow: false, reason: `membership is ${row.membership}` };
   if (join && row.visibility === 'open') return { allow: true };
   return { allow: false, reason: 'membership required' };
 }
 
-/** Called once an authorization code was issued: join an open product, or refresh last_seen_at. */
-export async function recordAuthorization(db: D1Database, productId: string, userId: string): Promise<void> {
+/**
+ * Called once an authorization code was issued: join an open product, or refresh last_seen_at; record the
+ * first authorization in this environment and its `user.joined` webhook event in the same batch (PRD §21.6).
+ */
+export async function recordAuthorization(db: D1Database, productId: string, env: Environment, userId: string): Promise<void> {
   const now = Date.now();
+  const anon = await db.prepare('SELECT isAnonymous FROM "user" WHERE id = ?').bind(userId).first<{ isAnonymous: number | null }>();
+  const joined = envJoinStatements(db, { productId, env, userId, anonymous: Boolean(anon?.isAnonymous), now });
   await db.batch([
     db.prepare(`UPDATE product_memberships SET last_seen_at = ? WHERE user_id = ? AND product_id = ? AND status = 'active'`)
       .bind(now, userId, productId),
@@ -41,7 +50,9 @@ export async function recordAuthorization(db: D1Database, productId: string, use
       `INSERT OR IGNORE INTO product_memberships (user_id, product_id, status, joined_at, last_seen_at)
        SELECT ?, id, 'active', ?, ? FROM products WHERE id = ? AND status = 'active' AND visibility = 'open'`,
     ).bind(userId, now, now, productId),
+    ...joined.statements,
   ]);
+  deliverSoon(db, [joined.messageId]);
 }
 
 function oauthOptions(ctx: { context: { getPlugin(id: string): unknown } }) {
@@ -93,7 +104,7 @@ export function oauthPolicy(deps: { db: D1Database; issuer: string; requireAdmin
                   return;
                 }
                 const client = value.type === 'authorization_code' ? parseClientId(value.query?.client_id ?? '') : null;
-                if (client && value.userId) await recordAuthorization(db, client.productId, value.userId);
+                if (client && value.userId) await recordAuthorization(db, client.productId, client.env, value.userId);
               },
             },
           },
