@@ -1,6 +1,8 @@
+import { fanOutStatements, userEventTargets, type ProductEnvTarget } from '@z-cloudbase/webhooks';
 import { systemAudit } from './audit.ts';
 import { eraseUserAnalytics } from './analytics-erasure.ts';
 import { identity } from './identity.ts';
+import { deliverNow, prepareAll } from './user-admin.ts';
 
 interface DeletionRequest {
   id: string;
@@ -107,12 +109,27 @@ export async function processDueRequests(env: Env, now = Date.now(), limit = 20)
     if (claim.meta.changes !== 1) continue;
     const audit = { productId: r.product_id, targetType: 'user', targetId: r.user_id };
     try {
+      // Webhook targets are the environments the user signed in to, known only before the data goes (PRD §21.6).
+      const targets: ProductEnvTarget[] = r.kind === 'delete'
+        ? await userEventTargets(env.DB, r.user_id, 'user.deleted', r.scope === 'product' ? (r.product_id ?? undefined) : undefined)
+        : [];
       const out = r.kind === 'export' ? await runExport(env, r) : await runDelete(env, r);
+      const fan = fanOutStatements(targets, 'user.deleted', { user_id: r.user_id, scope: r.scope });
       await env.DB.batch([
         env.DB.prepare(`UPDATE deletion_requests SET status = 'completed', completed_at = ?, result_ref = ? WHERE id = ?`)
           .bind(Date.now(), 'ref' in out ? out.ref : null, r.id),
         systemAudit(env.DB, { ...audit, action: `${r.kind}.completed`, metadata: { request_id: r.id, scope: r.scope, ...('objects' in out ? { objects_deleted: out.objects, analytics_envs_erased: out.analytics_envs } : {}) } }),
+        // The environments the user signed in to go with the data, in the batch that completes the request (a
+        // resumed run still finds them); re-joining later is a new `user.joined`.
+        ...(r.kind === 'delete'
+          ? [r.scope === 'product'
+            ? env.DB.prepare('DELETE FROM product_env_users WHERE user_id = ? AND product_env_id IN (SELECT id FROM product_environments WHERE product_id = ?)')
+              .bind(r.user_id, r.product_id)
+            : env.DB.prepare('DELETE FROM product_env_users WHERE user_id = ?').bind(r.user_id)]
+          : []),
+        ...prepareAll(env.DB, fan.statements),
       ]);
+      await deliverNow(env, fan.messageIds).catch((e) => console.error(JSON.stringify({ msg: 'webhook delivery failed', error: String(e) })));
       completed++;
     } catch (err) {
       console.error(JSON.stringify({ msg: 'deletion request failed', request_id: r.id, error: String(err) }));

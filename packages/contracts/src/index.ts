@@ -10,3 +10,5 @@ export * from './identity-rpc.ts';
 export * from './me.ts';
 export * from './analytics.ts';
 export * from './invitations.ts';
+export * from './user-admin.ts';
+export * from './webhooks.ts';

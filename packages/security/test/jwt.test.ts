@@ -72,4 +72,11 @@ describe('verifyConsoleToken', () => {
     expect(await rejection(verifyConsoleToken(productToken, { issuer: TEST_ISSUER, jwks: m.jwks }))).toBe('invalid_token');
     expect(await rejection(verifyAccessToken(consoleToken, opts(m.jwks)))).toBe('invalid_token');
   });
+
+  it('refuses console tokens carrying an impersonation actor (PRD §21.5.2)', async () => {
+    const { verifyConsoleToken } = await import('../src/index.ts');
+    const m = await createTestTokenMinter();
+    const token = await m.mintConsole({ userId: 'usr_target', act: { sub: 'usr_owner' } });
+    expect(await rejection(verifyConsoleToken(token, { issuer: TEST_ISSUER, jwks: m.jwks }))).toBe('invalid_token');
+  });
 });

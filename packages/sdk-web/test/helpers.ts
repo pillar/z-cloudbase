@@ -82,6 +82,8 @@ export async function createFakeIdp() {
     /** Next id_token: override its nonce, or sign with a key that is not in the JWKS. */
     nonceOverride: null as string | null,
     forgeIdToken: false,
+    /** Impersonation: the next tokens carry `act: { sub: actor }` (PRD §21.5.2). */
+    actor: null as string | null,
     expiresIn: 900,
     tokenCalls: 0,
     revoked: [] as string[],
@@ -103,7 +105,7 @@ export async function createFakeIdp() {
 
     async accessToken(userId: string): Promise<string> {
       const now = Math.floor(Date.now() / 1000);
-      return new SignJWT({}).setProtectedHeader({ alg: 'EdDSA', kid: 'k1', typ: 'at+jwt' })
+      return new SignJWT(idp.actor ? { act: { sub: idp.actor } } : {}).setProtectedHeader({ alg: 'EdDSA', kid: 'k1', typ: 'at+jwt' })
         .setIssuer(ISSUER).setSubject(userId).setAudience(`urn:platform:${CLIENT_ID}`)
         .setIssuedAt(now).setExpirationTime(now + idp.expiresIn).setJti(crypto.randomUUID())
         .sign(key.privateKey);
@@ -117,7 +119,7 @@ export async function createFakeIdp() {
       const body: Record<string, unknown> = { access_token: access, refresh_token: refresh, token_type: 'Bearer', expires_in: idp.expiresIn };
       if (nonce !== undefined) {
         const now = Math.floor(Date.now() / 1000);
-        body.id_token = await new SignJWT({ nonce: idp.nonceOverride ?? nonce })
+        body.id_token = await new SignJWT({ nonce: idp.nonceOverride ?? nonce, ...(idp.actor ? { act: { sub: idp.actor } } : {}) })
           .setProtectedHeader({ alg: 'EdDSA', kid: 'k1' })
           .setIssuer(ISSUER).setSubject(userId).setAudience(CLIENT_ID).setIssuedAt(now).setExpirationTime(now + 300)
           .sign(idp.forgeIdToken ? other.privateKey : key.privateKey);

@@ -313,6 +313,19 @@ importers:
         specifier: ^6.2.12
         version: 6.2.12
 
+  packages/webhooks:
+    dependencies:
+      '@z-cloudbase/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@z-cloudbase/security':
+        specifier: workspace:*
+        version: link:../security
+    devDependencies:
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.11(@types/node@24.19.1)(vite@8.3.3(@types/node@24.19.1)(esbuild@0.28.1)(jiti@2.7.0))
+
   services/api:
     dependencies:
       '@z-cloudbase/contracts':
@@ -321,6 +334,9 @@ importers:
       '@z-cloudbase/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@z-cloudbase/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/webhooks
       aws4fetch:
         specifier: ^1.0.20
         version: 1.0.20
@@ -355,6 +371,9 @@ importers:
       '@z-cloudbase/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@z-cloudbase/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/webhooks
       hono:
         specifier: ^4.13.13
         version: 4.13.13
@@ -398,6 +417,9 @@ importers:
       '@z-cloudbase/security':
         specifier: workspace:*
         version: link:../../packages/security
+      '@z-cloudbase/webhooks':
+        specifier: workspace:*
+        version: link:../../packages/webhooks
       better-auth:
         specifier: 1.7.7
         version: 1.7.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@4.1.11(@types/node@24.19.1)(vite@8.3.3(@types/node@24.19.1)(esbuild@0.28.1)(jiti@2.7.0)))

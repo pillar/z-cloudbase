@@ -277,6 +277,52 @@ claims.anon;  // 是否游客
 
 本地验签（只在首次 / 密钥轮换时拉取一次 JWKS），不调平台 API。别的产品或别的环境的 token 一律校验失败。
 
+**代登录（平台支持人员以用户身份排查问题）**：平台 owner 可以在控制台发起有时限（最长 60 分钟）、全程审计的代登录。此期间签发的 token 带 RFC 8693 `act` 声明：`claims.act = { sub: '<owner 的 user_id>' }`（前端 `onAuthStateChange` / `handleRedirectCallback` 返回的用户对象相应地有 `actor` 字段）。`claims.sub` 仍是被代登录的用户。产品决定如何对待：
+
+```ts
+if (claims.act) {
+  // 例：禁止支付、提现、删除数据等敏感操作；或全部拒绝
+  return res.status(403).json({ error: 'not allowed during a support session' });
+}
+```
+
+平台自己已保证：代登录会话不能进入控制台，也不能修改该用户的密码、邮箱、登录方式、二次验证，不能导出或删除账号。用户被平台封禁后，已签发的 access token 调用平台 API 返回 403 `user_banned`，refresh 失败（`invalid_grant`），重新登录会被拒绝；你的后端用 `verifyToken` 本地验签时仍会在 token 剩余的最长 15 分钟内通过——需要立即生效时订阅下面的 `user.banned` Webhook。
+
+### 5.4 Webhook（平台推送用户事件）
+
+在控制台「产品 → Webhook」为某个环境添加端点：URL 必须是 `https://`（只有 `dev` 环境允许 `http://localhost`），不能指向内网 / 回环地址；勾选要订阅的事件；保存后签名密钥 `whsec_…` 只显示一次，放进服务端环境变量。
+
+| 事件 | 何时 | `data` |
+|---|---|---|
+| `user.joined` | 用户第一次在这个产品环境完成登录授权 | `{ user_id, anonymous, first_seen_at }` |
+| `user.upgraded` | 游客绑定了第一种登录方式（`user_id` 不变） | `{ user_id, provider }` |
+| `user.deleted` | 删除完成：`scope: "account"` 用户删除了平台账号；`"product"` 用户退出了本产品且平台数据已清理 | `{ user_id, scope }` |
+| `user.banned` / `user.unbanned` | 平台封禁 / 解封（含到期自动解封，`reason: "expired"`） | `{ user_id, expires_at }` / `{ user_id, reason }` |
+
+请求体统一为 `{ id, type, timestamp, product_id, env, data }`，不含邮箱等个人信息。收到 `user.deleted` 时删除你那边该用户的业务数据。
+
+```ts
+import { verifyWebhook } from '@z-cloudbase/server';
+
+// 必须用原始请求体验签，验签通过后再解析
+app.post('/webhooks/platform', express.text({ type: '*/*' }), async (req, res) => {
+  let event;
+  try {
+    event = await verifyWebhook({ secret: process.env.PLATFORM_WEBHOOK_SECRET!, headers: req.headers, body: req.body });
+  } catch {
+    return res.sendStatus(401);
+  }
+  if (await alreadyProcessed(event.id)) return res.sendStatus(204); // 至少一次投递：按 event.id 去重
+  if (event.type === 'user.deleted') await deleteBusinessData(event.data.user_id);
+  res.sendStatus(204);
+});
+```
+
+- 签名遵循 [Standard Webhooks](https://www.standardwebhooks.com/)：`webhook-id`、`webhook-timestamp`、`webhook-signature`（`v1,` + HMAC-SHA256），任何语言都可以按该规范自行验证；时间戳与当前时间相差超过 5 分钟视为重放。
+- 只有 2xx 算成功；10 秒超时，不跟随重定向。失败后按 15 分钟、30 分钟、1、2、4、8、12 小时重试，共 8 次（约 28 小时）后放弃。尽快返回 2xx，耗时处理放到队列里。
+- 轮换密钥后，旧密钥还会并行签名 24 小时（签名头里有两个签名），在这段时间内更新环境变量即可。
+- 控制台可「发送测试」（`webhook.test` 事件）并查看最近 100 次投递记录（状态码、耗时、错误、响应前 256 字符）。
+
 ### 5.2 服务端日志与事件
 
 ```ts
@@ -348,6 +394,8 @@ const { url } = await platform.storage.getDownloadUrl(obj.id);
 - [ ] （错误上报）故意抛一个错误，控制台「日志」能查到。
 - [ ] （存储）上传 → 列表 → 下载内容一致 → 删除后下载地址失效。
 - [ ] 仓库与前端产物中搜索不到 `sk_`。
+- [ ] （Webhook）控制台「发送测试」后，你的接收端用 `verifyWebhook` 验签通过；改动请求体后验签失败。
+- [ ] （代登录）决定并实现带 `act` 声明的 token 在你的后端如何处理（至少禁止敏感操作）。
 
 ## 9. 当前限制（请告知人类负责人）
 

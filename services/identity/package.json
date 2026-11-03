@@ -16,6 +16,7 @@
     "@better-fetch/fetch": "1.3.2",
     "@z-cloudbase/contracts": "workspace:*",
     "@z-cloudbase/security": "workspace:*",
+    "@z-cloudbase/webhooks": "workspace:*",
     "better-auth": "1.7.7",
     "better-call": "1.4.0",
     "hono": "^4.13.13",

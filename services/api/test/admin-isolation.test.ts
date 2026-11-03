@@ -5,7 +5,7 @@ import { env } from 'cloudflare:workers';
 import { api, errorCode, initApp, makeWorld, seedUser, type Json, type World } from './admin-helpers.ts';
 import { minter, seedMembership } from './helpers.ts';
 
-const rpc = vi.hoisted(() => ({ upsertProductClient: vi.fn(), revokeUserTokens: vi.fn() }));
+const rpc = vi.hoisted(() => ({ upsertProductClient: vi.fn(), revokeUserTokens: vi.fn(), setUserBan: vi.fn() }));
 vi.mock('../src/identity.ts', () => ({
   identity: () => ({ getJwks: async () => (globalThis as any).__testJwks, ...rpc }),
 }));
@@ -15,6 +15,7 @@ vi.mock('../src/lib/logsearch/index.ts', () => ({ searchLogs: async () => [] }))
 let w: World;
 let bKeyId: string;
 let bTeamId: string;
+let bWebhookId: string;
 const bUser = 'usr_iso_bob';
 
 beforeAll(async () => {
@@ -27,6 +28,11 @@ beforeAll(async () => {
   await env.DB.prepare(
     `INSERT INTO service_credentials (id, product_env_id, scopes, secret_hash, created_by, created_at) VALUES (?, ?, '["logs:write"]', ?, 'usr_seed', ?)`,
   ).bind(bKeyId, w.envs.b.dev, newId('hash'), Date.now()).run();
+  bWebhookId = newId('whe');
+  await env.DB.prepare(
+    `INSERT INTO webhook_endpoints (id, product_env_id, url, event_types, enabled, secret, created_by, created_at, updated_at)
+     VALUES (?, ?, 'https://hooks.example.com/b', '["user.joined"]', 1, 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'usr_seed', ?, ?)`,
+  ).bind(bWebhookId, w.envs.b.dev, Date.now(), Date.now()).run();
   bTeamId = newId('tm');
   await env.DB.prepare(`INSERT INTO team_members (id, user_id, role, product_id, created_at) VALUES (?, ?, 'product_developer', ?, ?)`)
     .bind(bTeamId, bUser, w.b, Date.now()).run();
@@ -66,6 +72,15 @@ const routes: Route[] = [
   { name: 'GET analytics', method: 'GET', path: (w) => `/products/${w.b}/analytics?env=dev`, mutates: false },
   { name: 'GET logs', method: 'GET', path: (w) => `/products/${w.b}/logs?env=dev`, mutates: false },
   { name: 'GET /audit?product_id', method: 'GET', path: (w) => `/audit?product_id=${w.b}`, mutates: false },
+  // PRD §21.5.3 / §21.6
+  { name: 'GET users/export', method: 'GET', path: (w) => `/products/${w.b}/environments/dev/users/export`, mutates: false },
+  { name: 'GET webhooks', method: 'GET', path: (w) => `/products/${w.b}/environments/dev/webhooks`, mutates: false },
+  { name: 'POST webhooks', method: 'POST', path: (w) => `/products/${w.b}/environments/dev/webhooks`, body: () => ({ url: 'https://evil.example/x', event_types: ['user.joined'] }), mutates: true },
+  { name: 'PATCH webhooks/:id', method: 'PATCH', path: (w) => `/products/${w.b}/environments/dev/webhooks/${bWebhookId}`, body: () => ({ url: 'https://evil.example/x' }), mutates: true },
+  { name: 'DELETE webhooks/:id', method: 'DELETE', path: (w) => `/products/${w.b}/environments/dev/webhooks/${bWebhookId}`, mutates: true },
+  { name: 'POST webhooks/:id/rotate-secret', method: 'POST', path: (w) => `/products/${w.b}/environments/dev/webhooks/${bWebhookId}/rotate-secret`, mutates: true },
+  { name: 'POST webhooks/:id/test', method: 'POST', path: (w) => `/products/${w.b}/environments/dev/webhooks/${bWebhookId}/test`, mutates: true },
+  { name: 'GET webhooks/:id/deliveries', method: 'GET', path: (w) => `/products/${w.b}/environments/dev/webhooks/${bWebhookId}/deliveries`, mutates: false },
 ];
 // Platform-level routes that product-scoped principals must never reach.
 const platformRoutes: Route[] = [
@@ -73,10 +88,17 @@ const platformRoutes: Route[] = [
   { name: 'GET /team', method: 'GET', path: () => '/team', mutates: false },
   { name: 'POST /team (platform role)', method: 'POST', path: () => '/team', body: () => ({ user_id: bUser, role: 'owner' }), mutates: true },
   { name: 'GET /audit (platform-wide)', method: 'GET', path: () => '/audit', mutates: false },
+  // PRD §21.5: owner-only user management
+  { name: 'POST /users/:id/ban', method: 'POST', path: () => `/users/${bUser}/ban`, body: () => ({ reason: 'x' }), mutates: true },
+  { name: 'DELETE /users/:id/ban', method: 'DELETE', path: () => `/users/${bUser}/ban`, mutates: true },
+  { name: 'POST /users/:id/impersonations', method: 'POST', path: () => `/users/${bUser}/impersonations`, body: () => ({ reason: 'support ticket 1234' }), mutates: true },
 ];
 
 async function snapshot() {
-  const tables = ['products', 'product_environments', 'service_credentials', 'storage_buckets', 'event_schemas', 'team_members', 'product_memberships', 'audit_log'];
+  const tables = [
+    'products', 'product_environments', 'service_credentials', 'storage_buckets', 'event_schemas', 'team_members', 'product_memberships', 'audit_log',
+    'webhook_endpoints', 'webhook_messages', 'webhook_deliveries', 'impersonations', '"user"',
+  ];
   const out: Record<string, unknown> = {};
   for (const t of tables) out[t] = (await env.DB.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()).results;
   return JSON.stringify(out);
@@ -92,6 +114,7 @@ describe('product A principals cannot reach product B through any admin route', 
     expect(await snapshot()).toBe(before);
     expect(rpc.upsertProductClient).not.toHaveBeenCalled();
     expect(rpc.revokeUserTokens).not.toHaveBeenCalled();
+    expect(rpc.setUserBan).not.toHaveBeenCalled();
   });
 });
 

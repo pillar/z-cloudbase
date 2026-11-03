@@ -4,6 +4,7 @@ import {
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import { writeAudit } from './audit.ts';
+import { setUserBan } from './ban.ts';
 import { upsertProductClient } from './clients.ts';
 import { getAuth } from './instance.ts';
 import { createInvitation, listInvitations, revokeInvitation } from './invitations.ts';
@@ -39,6 +40,12 @@ async function result<T>(run: () => Promise<T>): Promise<RpcResult<T>> {
     throw e;
   }
 }
+const BanInput = z.object({
+  userId: UserId,
+  actorId: UserId,
+  requestId: z.string().max(64).optional(),
+  ban: z.object({ reason: z.string().min(1).max(500), expiresAt: z.string().nullable() }).nullable(),
+});
 
 function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
@@ -117,6 +124,10 @@ export class IdentityRpc extends WorkerEntrypoint<Env> implements IdentityRpcApi
       targetId: userId,
       metadata: { reason },
     });
+  }
+
+  async setUserBan(input: Parameters<IdentityRpcApi['setUserBan']>[0]) {
+    return setUserBan(this.env.DB, this.auth, parse(BanInput, input));
   }
 
   async exportUserIdentity(input: Parameters<IdentityRpcApi['exportUserIdentity']>[0]) {

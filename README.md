@@ -10,6 +10,7 @@ One deployment gives you:
 - **Products as isolation boundaries** — every product has `dev` / `staging` / `prod` environments with their own audience, keys, memberships, storage prefix and analytics; a token of product A is rejected by product B.
 - **Storage** (private per-user files through presigned R2 URLs), **logs**, **event analytics**.
 - **An admin console** (products, environments, keys, team roles, users, logs, analytics, audit) and **SDKs** for the browser (`@z-cloudbase/web`) and servers (`@z-cloudbase/server`).
+- **User management and product webhooks** — platform-wide bans, time-limited and audited support impersonation (tokens carry an RFC 8693 `act` claim), per-environment user CSV export, and signed webhooks ([Standard Webhooks](https://www.standardwebhooks.com/)) for user joined / upgraded / deleted / banned events, with retries and a delivery log.
 
 What it deliberately is not: a database host. Products keep their own business databases and reference the platform's `user_id`.
 

@@ -6,7 +6,18 @@ import { createHttp, fetchWithTimeout } from './http.ts';
 
 export interface AuthUser {
   id: string;
+  /**
+   * Set during a platform support session (impersonation, PRD §21.5.2): the user id of the platform owner
+   * acting as this user (the token's RFC 8693 `act.sub`). Show a notice, and let the backend refuse
+   * sensitive operations (it sees the same `act` claim in the access token).
+   */
+  actor?: string;
 }
+
+const actorOf = (claims: object) => {
+  const sub = ((claims as { act?: unknown }).act as { sub?: unknown } | undefined)?.sub;
+  return typeof sub === 'string' ? { actor: sub } : {};
+};
 
 /** `GET /v1/me` body (packages/contracts `MeResponse`). */
 export type Me = MeResponse;
@@ -180,9 +191,10 @@ export function createAuth(config: ClientConfig) {
     }
     const firstRestore = session === null;
     // Unverified decode is fine here: the token just came from the token endpoint over TLS and
-    // `sub` only feeds the local user object.
-    startSession(t, session?.userId ?? decodeJwt(t.access_token).sub ?? '');
-    if (firstRestore) emit({ id: session!.userId });
+    // `sub` / `act` only feed the local user object.
+    const claims = decodeJwt(t.access_token);
+    startSession(t, session?.userId ?? claims.sub ?? '');
+    if (firstRestore) emit({ id: session!.userId, ...actorOf(claims) });
     return t.access_token;
   }
 
@@ -266,7 +278,7 @@ export function createAuth(config: ClientConfig) {
         if (!payload.sub) throw new PlatformError('invalid_token', 'id_token has no subject');
 
         startSession(t, payload.sub);
-        const user = { id: payload.sub };
+        const user: AuthUser = { id: payload.sub, ...actorOf(payload) };
         emit(user);
         return user;
       } finally {

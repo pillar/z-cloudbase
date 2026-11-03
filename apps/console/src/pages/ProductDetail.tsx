@@ -1,5 +1,5 @@
 import { Suspense, lazy, type ComponentType, type ReactNode } from 'react';
-import { BarChart3, Database, Gauge, History, KeyRound, ScrollText, Settings2, ShieldCheck, Users as UsersIcon, type LucideIcon } from 'lucide-react';
+import { BarChart3, Database, Gauge, History, KeyRound, ScrollText, Settings2, ShieldCheck, Users as UsersIcon, Webhook, type LucideIcon } from 'lucide-react';
 import { defineMessages, useT } from '../i18n.tsx';
 import { CopyText, ErrorBanner, Loading, StatusBadge, hasRole, useApp, useLoad } from '../ui.tsx';
 import type { Me, ProductDetail as Product } from '../types.ts';
@@ -14,6 +14,7 @@ const Usage = lazyNamed(() => import('./Usage.tsx'), 'Usage');
 const Logs = lazyNamed(() => import('./Logs.tsx'), 'Logs');
 const Analytics = lazyNamed(() => import('./Analytics.tsx'), 'Analytics');
 const Users = lazyNamed(() => import('./Users.tsx'), 'Users');
+const Webhooks = lazyNamed(() => import('./Webhooks.tsx'), 'Webhooks');
 const Team = lazyNamed(() => import('./Team.tsx'), 'Team');
 const Audit = lazyNamed(() => import('./Audit.tsx'), 'Audit');
 
@@ -31,6 +32,7 @@ export const sectionMessages = defineMessages({
     logs: '日志',
     analytics: '数据分析',
     users: '用户',
+    webhooks: 'Webhook',
     team: '团队成员',
     audit: '审计日志',
   },
@@ -42,6 +44,7 @@ export const sectionMessages = defineMessages({
     logs: 'Logs',
     analytics: 'Analytics',
     users: 'Users',
+    webhooks: 'Webhooks',
     team: 'Team',
     audit: 'Audit log',
   },
@@ -58,6 +61,7 @@ export const SECTIONS: Array<{ id: SectionId; icon: LucideIcon; admin?: boolean;
   { id: 'logs', icon: ScrollText, render: (p) => <Logs {...p} /> },
   { id: 'analytics', icon: BarChart3, render: (p) => <Analytics {...p} /> },
   { id: 'users', icon: UsersIcon, admin: true, render: (p) => <Users {...p} /> },
+  { id: 'webhooks', icon: Webhook, render: (p) => <Webhooks {...p} /> },
   { id: 'team', icon: ShieldCheck, admin: true, render: (p) => <Team {...p} /> },
   { id: 'audit', icon: History, render: (p) => <Audit {...p} /> },
 ];

@@ -31,6 +31,8 @@ export interface ApiClient {
   delete<T = void>(path: string): Promise<T>;
   /** GET a file (e.g. an export); errors are the unified JSON body, as with `get`. */
   download(path: string, query?: Query): Promise<Blob>;
+  /** GET a non-JSON body (e.g. CSV export) together with the response headers. */
+  getText(path: string, query?: Query): Promise<{ text: string; headers: Headers }>;
 }
 
 export function buildUrl(origin: string, path: string, query?: Query): string {
@@ -84,6 +86,12 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
       const res = await send('GET', path, query);
       if (!res.ok) fail(res, (await res.json().catch(() => null)) as ErrorBody);
       return res.blob();
+      return res.blob();
+    },
+    getText: async (path, query) => {
+      const res = await send('GET', path, query);
+      if (!res.ok) fail(res, (await res.json().catch(() => null)) as ErrorBody);
+      return { text: await res.text(), headers: res.headers };
     },
   };
 }

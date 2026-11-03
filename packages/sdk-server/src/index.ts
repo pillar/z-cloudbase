@@ -14,6 +14,9 @@ export type { ExpectedProduct } from './auth.ts';
 export type { LogMeta } from './logs.ts';
 export type { ServerEventOptions } from './analytics.ts';
 export type { CreateUploadParams } from './storage.ts';
+export type { AccessTokenClaims, ActorClaim } from '@z-cloudbase/contracts';
+// Product webhooks (PRD §21.6).
+export { verifyWebhook, type VerifyWebhookOptions, type WebhookEvent, type WebhookEventType } from './webhooks.ts';
 
 /**
  * Server-side client authenticated with a service key. Works in Node, Workers and other fetch

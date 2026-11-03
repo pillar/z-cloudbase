@@ -5,6 +5,7 @@ import { processDueRequests } from './deletion.ts';
 import { handleDlq } from './dlq.ts';
 import { handleEvents } from './events.ts';
 import { handleLogs } from './logs.ts';
+import { expireBans, expireImpersonations, pruneWebhooks, retryWebhooks } from './user-admin.ts';
 
 // Every named export of the entry module is a workerd entrypoint, so only entrypoint classes are
 // exported here (constants and helpers live in their own modules).
@@ -31,9 +32,14 @@ export default {
     const jobs: Array<[string, () => Promise<unknown>]> = [
       ['purge', () => purgeExpired(env)],
       ['reap_pending_uploads', () => reapStalePendingUploads(env)],
+      // PRD §21.5 / §21.6 on the same schedules (Workers Free allows 5 cron triggers per account).
+      ['expire_impersonations', () => expireImpersonations(env)],
+      ['expire_bans', () => expireBans(env)],
     ];
-    if (controller.cron === DAILY_CRON) jobs.push(['reclaim_anonymous', () => reclaimAnonymous(env)], ['prune_analytics', () => pruneAnalytics(env)], ['expire_archive', () => expireArchive(env)]);
-    jobs.push(['deletion_pipeline', () => processDueRequests(env)]);
+    if (controller.cron === DAILY_CRON) {
+      jobs.push(['reclaim_anonymous', () => reclaimAnonymous(env)], ['prune_analytics', () => pruneAnalytics(env)], ['expire_archive', () => expireArchive(env)], ['prune_webhooks', () => pruneWebhooks(env)]);
+    }
+    jobs.push(['deletion_pipeline', () => processDueRequests(env)], ['webhook_retries', () => retryWebhooks(env)]);
     for (const [name, job] of jobs) {
       try {
         await job();
