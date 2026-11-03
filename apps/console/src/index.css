@@ -123,3 +123,16 @@
   * { @apply border-border outline-ring/50; }
   body { @apply bg-background text-foreground antialiased; font-feature-settings: "cv11", "ss01"; }
 }
+
+/* Wide tables scroll inside their card; an edge shadow shows there is more to either side (pure CSS:
+   the card-colored covers scroll with the content and hide the shadows at the ends). */
+@layer components {
+  [data-slot="table-container"] {
+    background:
+      linear-gradient(to right, var(--card) 40%, transparent) left / 2.5rem 100% no-repeat local,
+      linear-gradient(to left, var(--card) 40%, transparent) right / 2.5rem 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklch, var(--foreground) 18%, transparent), transparent) left / 0.75rem 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklch, var(--foreground) 18%, transparent), transparent) right / 0.75rem 100% no-repeat scroll;
+    overscroll-behavior-x: contain;
+  }
+}

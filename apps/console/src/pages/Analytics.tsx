@@ -2,6 +2,7 @@ import { Suspense, lazy, useState, type ComponentType, type ReactNode } from 're
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
@@ -46,6 +47,7 @@ const messages = defineMessages({
     tab_events: '事件明细',
     tab_export: '导出',
     rangeHint: '日期按 UTC；留空时默认最近 7 天，并截到保留期内。',
+    view: '视图',
   },
   en: {
     from: 'From',
@@ -72,6 +74,7 @@ const messages = defineMessages({
     tab_events: 'Events',
     tab_export: 'Export',
     rangeHint: 'UTC dates; empty means the last 7 days, clamped to the retention window.',
+    view: 'View',
   },
 });
 
@@ -123,11 +126,18 @@ export function Analytics({ product }: TabProps) {
         <p className="text-muted-foreground pb-2 text-xs">{t.rangeHint}</p>
       </div>
       <Tabs value={tab} onValueChange={open} className="gap-6">
-        <div className="overflow-x-auto">
-          <TabsList>
-            {TABS.map((id) => <TabsTrigger key={id} value={id}>{t[`tab_${id}`]}</TabsTrigger>)}
-          </TabsList>
-        </div>
+        {/* Phones get a select (six tabs do not fit 390 px); wider screens the tab bar. */}
+        <Select value={tab} onValueChange={open}>
+          <SelectTrigger className="w-full sm:hidden" aria-label={t.view}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TABS.map((id) => <SelectItem key={id} value={id}>{t[`tab_${id}`]}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <TabsList className="hidden sm:inline-flex">
+          {TABS.map((id) => <TabsTrigger key={id} value={id}>{t[`tab_${id}`]}</TabsTrigger>)}
+        </TabsList>
         {TABS.filter((id) => opened.has(id)).map((id) => (
           <TabsContent key={id} value={id} forceMount className="space-y-6 data-[state=inactive]:hidden">
             <Suspense fallback={<Loading loading rows={4} />}>{views[id]}</Suspense>
