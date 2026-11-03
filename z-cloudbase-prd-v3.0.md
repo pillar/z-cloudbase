@@ -749,14 +749,35 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 
 ### 21.1 运维与发布
 
-- `pnpm platform:destroy`：删除一个前缀的全部资源。
-- 限流命名空间按部署前缀派生，同一账号的多套部署互不影响。
-- 升级迁移前记录 D1 Time Travel 恢复点，并给出回滚命令。
-- 版本号、CHANGELOG、GitHub Actions CI、依赖更新、SDK 的 npm 发布流程（tag 触发）。
-- 一条命令启动本地开发（本地栈 + 控制台）。
-- "Deploy to Cloudflare" 一键按钮的可行性结论。
+**`pnpm platform:destroy --prefix <p> [--confirm <p>] [--account-id <id>] [--dry-run]`**
 
-（待补充规格）
+- `--prefix` 必填（不设默认值，避免误删默认部署）。资源名全部来自 `resourceNames(prefix)`。
+- 先打印完整计划（账号、每一项资源与对应的 wrangler 命令），然后要求确认：交互终端里手动输入前缀；非 TTY 必须给出与 `--prefix` 完全相同的 `--confirm`，否则拒绝执行。`--dry-run` 只打印计划，不访问远程、不需要登录。
+- 删除顺序（依赖方在先）：Worker（`console` → `api` → `consumer` → `identity`，`wrangler delete`，随之移除其 custom domain / 路由与 secret）→ 四个队列上的 consumer（`queues consumer remove`）→ 四个队列 → 两个 D1（`d1 delete -y`）→ 两个 R2 bucket → `.deploy/<prefix>.json`。已不存在的资源按“已删除”处理，所以失败后可以重跑同一条命令。
+- wrangler 的能力边界（wrangler 4.148 的 `--help` 核实，2026-11-04）：
+  - R2 bucket 必须为空才能删除，wrangler 没有“列出 / 批量删除对象”的命令。做法：先尝试 `r2 bucket delete`；遇到“非空”时给该 bucket 加一条生命周期规则 `destroy-expire-all`（全部对象 1 天后过期、未完成的分片上传 1 天后中止），把它标为“待清空”并提示约 24 小时后重跑同一条命令。仍有 bucket 待清空时保留 `.deploy/<prefix>.json`，退出码为 1。运营者也可以自己用 S3 兼容工具清空后立即重跑。
+  - Analytics Engine 数据集无法删除（没有对应 API）：无写入后按保留期（90 天）自动过期，计划里只列出数据集名称。
+  - D1 删除不可恢复，同时失去 Time Travel 历史；计划里提示先用 `wrangler d1 export` 备份。
+  - 自定义域名对应的 DNS 记录是否随 Worker 一并清除，本仓库未在真实账号验证（远程待验证）；结束时提示运营者在 Cloudflare 控制台检查。
+- 退出码：全部完成 0；有失败或待清空项 1。
+
+**限流命名空间**：`ratelimits.namespace_id` 在 Cloudflare 账号内唯一（正整数字符串，文档未给出上限）。部署脚本为生成的 api 配置设置 `namespace_id = 1000000 + (SHA-256(prefix) 前 4 字节 mod 2000000000)`，同前缀稳定、不同前缀不同（碰撞概率约 5×10⁻¹⁰）；仓库内的本地值 `2001` 不变。
+
+**升级前的 D1 恢复点**：已存在的部署在应用迁移前，对 platform / ingest 两个库执行 `wrangler d1 time-travel info <db> --json`，取得当前 bookmark，写入 `.deploy/<prefix>.json` 的 `restorePoints`（时间、升级前的版本与 commit、两个 bookmark）。迁移失败时和部署结束的摘要里都打印 `wrangler d1 time-travel restore <db> --bookmark=<b>`（破坏性：覆盖当前数据；Free 套餐保留 7 天，Paid 30 天；还原后需把代码回到记录的 commit 再部署）。首次创建（库刚建好）与 `--dry-run` 不记录；取不到 bookmark 时只警告、不阻止升级。
+
+**版本与发布**
+- 版本号 `0.1.0`（根 `package.json` 的 `version`），变更记录 `CHANGELOG.md`（Keep a Changelog）。部署记录 `.deploy/<prefix>.json` 保存 `version`、`commit`（工作区有改动时加 `-dirty`）、`deployedAt`。
+- CI（`.github/workflows/ci.yml`，push / PR）：安装（frozen lockfile）、`pnpm -r typecheck`、`pnpm -r test`、`pnpm test:scripts`、`pnpm sdk:pack`；`pnpm test:e2e` 为独立 job。Node 24，pnpm 取自 `packageManager`。依赖更新用 Dependabot（npm 每周分组，github-actions 每周）。
+- 发布（`release.yml`，tag `v*`）：校验 tag 与版本一致，构建 SDK tarball，以 npm provenance 发布 `@z-cloudbase/web` 与 `@z-cloudbase/server`（secret `NPM_TOKEN`），tarball 附到 GitHub Release。本仓库不执行真实发布。
+
+**本地一条命令开发 `pnpm dev`**：复用 `tests/e2e/local-stack`。状态目录默认 `.wrangler-state`（gitignored）：执行迁移；生成并保存本地 `AUTH_SECRET`（`.wrangler-state/dev-secrets.json`，权限 600，重启后签名密钥仍可解密）；固定端口（identity / api / gateway 8787，控制台 5173，可用 `--port` / `--console-port` 修改）；首次运行创建管理员（随机密码只打印一次）；每次启动都更新控制台回调地址；启动控制台 Vite dev server 指向本地栈；打印 URL；Ctrl-C 停止全部子进程。
+
+**“Deploy to Cloudflare” 按钮的结论（官方文档 https://developers.cloudflare.com/workers/platform/deploy-buttons/ ，访问 2026-11-04）：本仓库不实现，原因如下。**
+1. 每个按钮只部署一个 Worker 应用，文档明确“多个 Worker 的 monorepo 需要为每个应用配置各自的按钮”，且子目录部署要求应用“完全隔离在该子目录内，包括依赖”；本仓库有 4 个 Worker，且依赖 workspace 包（contracts、security）。
+2. 自动配置的资源类型列表为 KV、D1、R2、Hyperdrive、Vectorize、Secrets Store、Durable Objects、Workers AI、Queues；未列出服务绑定（identity 与 api / consumer 的 `IdentityRpc`）、Analytics Engine、限流绑定。
+3. 部署顺序（identity → consumer → api → console）与 secret 的跨 Worker 生成（`AUTH_SECRET` 只生成一次、`SETUP_TOKEN` 每次随机）、R2 CORS、`/setup/install` 创建首个管理员（随机密码打印一次）都不在按钮流程内；D1 迁移只能放进单个 Worker 的 `deploy` 脚本，而本仓库两个库由不同迁移目录共享给多个 Worker。
+4. 按钮只支持公开的 github.com / gitlab.com 仓库，并按“拥有者账号”创建克隆，不保证与上游版本升级的关系。
+最接近的路径：保持 `git clone` + `pnpm platform:deploy`（一条命令完成资源、迁移、四个 Worker、首个管理员）。若 Cloudflare 将来支持多 Worker / 服务绑定 / 部署后脚本，再重新评估。
 
 ### 21.2 邮件发送与注册模式
 

@@ -44,6 +44,8 @@ Administrator (the password is shown only now — store it in a password manager
 
 打开控制台地址登录，就可以创建第一个产品。想先看看效果、不动账号里的任何东西，可以用 `pnpm platform:deploy --dry-run`：它只在本地生成配置并构建所有 Worker。
 
+没有“Deploy to Cloudflare”一键按钮：它每个按钮只部署一个 Worker，无法配置服务绑定、Analytics Engine 和首个管理员（依据见 PRD §21.1）。
+
 ### 参数
 
 | 参数 | 默认值 | 说明 |
@@ -76,6 +78,17 @@ git pull && pnpm install
 pnpm platform:deploy             # 首次部署的设置保存在 .deploy/<prefix>.json
 ```
 
+升级时，在对已有数据库应用迁移之前，脚本会把每个 D1 数据库当前的 Time Travel bookmark 记录到 `.deploy/<prefix>.json`，并打印 `wrangler d1 time-travel restore …` 回滚命令（迁移失败时也会打印）。记录里还保存已部署的 `version` 和 git `commit`。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+### 删除部署
+
+```sh
+pnpm platform:destroy --prefix <prefix> --dry-run    # 只打印计划
+pnpm platform:destroy --prefix <prefix>              # 要求输入前缀确认（非交互环境：--confirm <prefix>）
+```
+
+删除该前缀的 Worker（含自定义域名）、队列消费者与队列、两个 D1 数据库、两个 R2 bucket，最后删除 `.deploy/<prefix>.json`。wrangler 无法清空 R2 bucket：非空的 bucket 会被加上“1 天后过期全部对象”的生命周期规则，约 24 小时后重新执行同一条命令即可。Analytics Engine 数据集无法删除。D1 删除不可恢复。
+
 ### 管理员
 
 - 更多管理员和产品角色（`owner`、`operator`、`product_admin`、`product_developer`）在控制台的“团队”页管理。
@@ -94,7 +107,7 @@ pnpm platform:deploy             # 首次部署的设置保存在 .deploy/<prefi
 
 1. 在控制台创建产品，填写回调地址和允许的来源，复制可发布密钥（`pk_dev_…`）；有后端时再创建服务密钥。
 2. 构建 SDK 包：`pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`、`z-cloudbase-server-<v>.tgz`（尚未发布到 npm）。
-3. 按 [docs/integration-guide.md](docs/integration-guide.md) 接入（AI 编程助手可以按步骤执行）。
+3. 按接入教程操作：[中文](docs/integration-guide.md) 或 [English](docs/integration-guide.en.md)（AI 编程助手可以按步骤执行）。
 
 ## 开发
 
@@ -102,8 +115,12 @@ pnpm platform:deploy             # 首次部署的设置保存在 .deploy/<prefi
 pnpm -r typecheck
 pnpm -r test                     # 单元测试 + workerd 集成测试
 pnpm test:e2e                    # 所有 Worker 跑在一个本地进程里（约 75 秒，每次使用全新状态）
-pnpm bootstrap:local --persist-to .wrangler-state   # 本地状态 + 随机密码的管理员
+pnpm dev                         # 本地栈 + 控制台，状态持久化；首次运行打印一次管理员密码
+pnpm test:scripts                # 运营脚本测试
+pnpm bootstrap:local --persist-to .wrangler-state   # 本地状态 + 随机密码的管理员（不保持服务运行）
 ```
+
+`pnpm dev` 在 http://localhost:8787 启动 identity / api / consumer，在 http://localhost:5173 启动控制台（状态在 gitignore 的 `.wrangler-state/`，Ctrl-C 停止全部）。贡献指南见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全策略见 [SECURITY.md](SECURITY.md)。
 
 全部在本地 Miniflare 上运行，测试不会访问 Cloudflare 账号。约定见 [CLAUDE.md](CLAUDE.md)，本地栈说明见 [database/seeds/README.md](database/seeds/README.md)，需求与规格见 [PRD v3.0](z-cloudbase-prd-v3.0.md)。
 

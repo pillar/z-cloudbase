@@ -47,6 +47,10 @@ Administrator (the password is shown only now — store it in a password manager
 
 Open the console URL, sign in, create your first product. To try it without touching your account, `pnpm platform:deploy --dry-run` only generates the configs and builds every worker locally.
 
+There is no "Deploy to Cloudflare" button: it deploys one Worker per button and cannot provision service bindings, Analytics Engine or the first administrator (reasoning in PRD §21.1).
+
+There is no "Deploy to Cloudflare" button: it deploys one Worker per button and cannot provision service bindings, Analytics Engine or the first administrator (reasoning in PRD §21.1).
+
 ### Options
 
 | Flag | Default | |
@@ -79,6 +83,17 @@ git pull && pnpm install
 pnpm platform:deploy             # settings of the first run are in .deploy/<prefix>.json
 ```
 
+Before an upgrade applies migrations to existing databases, the script records each D1 database's Time Travel bookmark in `.deploy/<prefix>.json` and prints the `wrangler d1 time-travel restore …` commands (also if a migration fails). The record also keeps the deployed `version` and git `commit`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+### Remove a deployment
+
+```sh
+pnpm platform:destroy --prefix <prefix> --dry-run    # print the plan only
+pnpm platform:destroy --prefix <prefix>              # asks you to type the prefix (non-interactive: --confirm <prefix>)
+```
+
+Deletes the workers (and their custom domains), queue consumers and queues, both D1 databases and both R2 buckets of that prefix, then `.deploy/<prefix>.json`. Wrangler cannot empty R2 buckets: a non-empty bucket gets a lifecycle rule that expires every object after one day, and you run the same command again about 24 hours later. Analytics Engine datasets cannot be deleted at all. D1 deletion is irreversible.
+
 ### Administrators
 
 - More administrators and product roles (`owner`, `operator`, `product_admin`, `product_developer`) are managed in the console under Team.
@@ -97,7 +112,7 @@ There is no web installer and no public admin sign-up: the first administrator c
 
 1. In the console: create a product, set its redirect URIs and allowed origins, copy the publishable key (`pk_dev_…`), create a service key for your backend if needed.
 2. Build the SDK tarballs: `pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`, `z-cloudbase-server-<v>.tgz` (not published to npm yet).
-3. Follow [docs/integration-guide.md](docs/integration-guide.md) (Chinese; written so an AI coding assistant can follow it step by step).
+3. Follow the integration guide — [English](docs/integration-guide.en.md) or [中文](docs/integration-guide.md) (written so an AI coding assistant can follow it step by step).
 
 ```ts
 import { createClient } from '@z-cloudbase/web';
@@ -119,8 +134,12 @@ await platform.auth.signInWithRedirect({ guest: true }); // or a normal sign-in
 pnpm -r typecheck
 pnpm -r test                     # unit + workerd integration tests
 pnpm test:e2e                    # all workers in one local process (~75 s, fresh state)
-pnpm bootstrap:local --persist-to .wrangler-state   # local state + administrator with a random password
+pnpm dev                         # local stack + console with persisted state, first run prints the admin password once
+pnpm test:scripts                # operator script tests
+pnpm bootstrap:local --persist-to .wrangler-state   # local state + administrator with a random password (no servers kept running)
 ```
+
+`pnpm dev` starts identity / api / consumer on http://localhost:8787 and the console on http://localhost:5173 (state in `.wrangler-state/`, gitignored; Ctrl-C stops everything). See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 Everything runs locally on Miniflare; tests never touch a Cloudflare account. See [CLAUDE.md](CLAUDE.md) for conventions and [database/seeds/README.md](database/seeds/README.md) for the local stack. Requirements and specifications: [z-cloudbase-prd-v3.0.md](z-cloudbase-prd-v3.0.md) (Chinese).
 

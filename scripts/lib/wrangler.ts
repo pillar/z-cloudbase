@@ -1,5 +1,6 @@
 // Shared helpers of the operator scripts: run the repo's own wrangler, read the JSONC worker configs,
 // and the deployment record (non-secret settings) kept between runs.
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -84,9 +85,23 @@ export interface DeploymentRecord {
   requireAdmin2fa: boolean;
   accountId: string;
   urls: { identity: string; api: string; console: string };
+  /** Version (root package.json), git commit and time of the last successful deploy. */
+  version?: string;
+  commit?: string;
+  deployedAt?: string;
+  /** D1 Time Travel bookmarks taken right before the last upgrade's migrations (see platform-deploy.ts). */
+  restorePoints?: RestorePoint;
 }
 
-const recordPath = (prefix: string) => path.join(ROOT, '.deploy', `${prefix}.json`);
+export interface RestorePoint {
+  at: string;
+  fromVersion?: string;
+  fromCommit?: string;
+  /** database name -> bookmark */
+  bookmarks: Record<string, string>;
+}
+
+export const recordPath = (prefix: string) => path.join(ROOT, '.deploy', `${prefix}.json`);
 
 export function readRecord(prefix: string): DeploymentRecord | null {
   const file = recordPath(prefix);
@@ -122,3 +137,20 @@ export const PREFIX_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
 
 /** The generated config of a deployment sits next to the checked-in one, so relative paths still resolve. */
 export const generatedConfig = (dir: string, prefix: string) => path.join(dir, `wrangler.${prefix}.deploy.jsonc`);
+
+/**
+ * `ratelimits.namespace_id` is unique per Cloudflare account (a string holding a positive integer), so deployments
+ * sharing an account need different ones. Deterministic per prefix: 1000000 + first 4 bytes of SHA-256(prefix) mod 2e9.
+ */
+export function rateLimitNamespaceId(prefix: string): string {
+  const n = createHash('sha256').update(prefix).digest().readUInt32BE(0);
+  return String(1_000_000 + (n % 2_000_000_000));
+}
+
+/** Give every `ratelimits` binding of a worker config this deployment's namespace id (bindings of one worker keep distinct ids). */
+export function applyRateLimitNamespaces(config: Record<string, any>, prefix: string): void {
+  const base = Number(rateLimitNamespaceId(prefix));
+  (config.ratelimits ?? []).forEach((r: { namespace_id: string }, i: number) => {
+    r.namespace_id = String(base + i);
+  });
+}
