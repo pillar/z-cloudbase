@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Identity pages: engine errors with a known code (wrong password, invalid code, banned, passkey second-factor rules) are shown in the page language; the support-session confirmation page and banner are bilingual and use the shared layout; refused browser navigations (rate limit, actions during a support session) get an HTML error page instead of the JSON body; light/dark styling, styled error alerts, a sign-out button on the account page.
+- Console: an owner without TOTP gets an explanation and a two-factor setup link instead of the raw `mfa_required` error; webhook delivery errors are readable; retention shows `–` for periods that have not started; dialog titles no longer run under the close button on phones; favicon.
+- Admin API: creating or updating a product with no redirect URI is a 400 `validation_failed` (it was a 500 from the identity RPC).
+
 ## [0.2.0] - 2026-11-04
 
 Platform v3.1 (PRD §21). SDKs `@z-cloudbase/web` and `@z-cloudbase/server` are at 0.2.0.
