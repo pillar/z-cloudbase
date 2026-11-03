@@ -21,7 +21,7 @@ const CONFIGS = [
   'services/api/wrangler.jsonc',
   'services/consumer/wrangler.jsonc',
 ];
-export const DATABASES = { platform: 'cloudbase-platform', ingest: 'cloudbase-ingest' } as const;
+export const DATABASES = { platform: 'z-cloudbase-platform', ingest: 'z-cloudbase-ingest' } as const;
 export type Database = keyof typeof DATABASES;
 
 /** Wrangler's CLI entry, resolved from this package's own devDependency. */
@@ -208,7 +208,7 @@ export async function r2Keys(stack: StackInfo, bucket: string, prefix: string): 
 
 /** Invoke the consumer's scheduled handler with `cron` (Local Explorer; the primary-only /cdn-cgi/handler/scheduled cannot reach it). */
 export async function triggerCron(stack: StackInfo, cron: string): Promise<void> {
-  const r = await explorer<{ outcome: string }>(stack, `/local/scheduled?worker=cloudbase-consumer`, {
+  const r = await explorer<{ outcome: string }>(stack, `/local/scheduled?worker=z-cloudbase-consumer`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ cron }),
@@ -224,6 +224,6 @@ async function gatewayCall<T>(stack: StackInfo, pathname: string, body: unknown)
 }
 
 /** Re-enqueue archived dead letters through the consumer's ConsumerOps.replayDlq. */
-export async function replayDlq(stack: StackInfo, dlq: 'cloudbase-logs-dlq' | 'cloudbase-events-dlq', date?: string): Promise<number> {
+export async function replayDlq(stack: StackInfo, dlq: 'z-cloudbase-logs-dlq' | 'z-cloudbase-events-dlq', date?: string): Promise<number> {
   return (await gatewayCall<{ replayed: number }>(stack, '/__local/dlq/replay', { dlq, ...(date ? { date } : {}) })).replayed;
 }

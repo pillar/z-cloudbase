@@ -80,7 +80,7 @@ export interface AeConfig {
  * REMOTE-UNVERIFIED: only exercised against a fake fetch locally (PRD §19.10).
  */
 export function aeAnalyticsQuery(cfg: AeConfig): AnalyticsQuery {
-  const dataset = cfg.dataset ?? 'cloudbase_events';
+  const dataset = cfg.dataset ?? 'z_cloudbase_events';
   const doFetch = cfg.fetch ?? fetch;
   async function sql<T>(query: string): Promise<T[]> {
     const res = await doFetch(`https://api.cloudflare.com/client/v4/accounts/${cfg.accountId}/analytics_engine/sql`, {

@@ -15,47 +15,47 @@ const keys = async (prefix: string) => (await baseEnv.ARCHIVE.list({ prefix })).
 describe('DLQ archive + replay', () => {
   it('persists dead-lettered messages under dlq/{queue}/{date}/{id}.json and acks them', async () => {
     const body = { product_id: 'dl_a', hello: 'world' };
-    const r = await deliver('cloudbase-events-dlq', [body]);
+    const r = await deliver('z-cloudbase-events-dlq', [body]);
     expect(r.acked).toHaveLength(1);
-    const [key] = await keys('dlq/cloudbase-events-dlq/');
-    expect(key).toMatch(/^dlq\/cloudbase-events-dlq\/\d{4}-\d{2}-\d{2}\/.+\.json$/);
-    expect(await (await baseEnv.ARCHIVE.get(key!))!.json()).toMatchObject({ queue: 'cloudbase-events-dlq', body, attempts: 1 });
+    const [key] = await keys('dlq/z-cloudbase-events-dlq/');
+    expect(key).toMatch(/^dlq\/z-cloudbase-events-dlq\/\d{4}-\d{2}-\d{2}\/.+\.json$/);
+    expect(await (await baseEnv.ARCHIVE.get(key!))!.json()).toMatchObject({ queue: 'z-cloudbase-events-dlq', body, attempts: 1 });
   });
 
   it('retries (does not ack) when the archive write fails', async () => {
     const broken = { ...baseEnv, ARCHIVE: { put: async () => { throw new Error('r2 down'); } } };
-    const r = await deliver('cloudbase-logs-dlq', [{ x: 1 }], broken);
+    const r = await deliver('z-cloudbase-logs-dlq', [{ x: 1 }], broken);
     expect(r.acked).toEqual([]);
     expect(r.retried).toHaveLength(1);
   });
 
   it('replays archived messages onto the original queue and removes them from the archive', async () => {
-    await deliver('cloudbase-logs-dlq', [{ n: 1 }, { n: 2 }, { n: 3 }]);
-    expect(await keys('dlq/cloudbase-logs-dlq/')).toHaveLength(3);
+    await deliver('z-cloudbase-logs-dlq', [{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(await keys('dlq/z-cloudbase-logs-dlq/')).toHaveLength(3);
 
     const logs = queue();
     const events = queue();
-    const replayed = await replayDlq({ ...baseEnv, LOGS_QUEUE: logs, EVENTS_QUEUE: events } as any, 'cloudbase-logs-dlq');
+    const replayed = await replayDlq({ ...baseEnv, LOGS_QUEUE: logs, EVENTS_QUEUE: events } as any, 'z-cloudbase-logs-dlq');
     expect(replayed).toBe(3);
     expect((logs.bodies as Array<{ n: number }>).map((b) => b.n).sort()).toEqual([1, 2, 3]);
     expect(events.bodies).toEqual([]);
-    expect(await keys('dlq/cloudbase-logs-dlq/')).toEqual([]);
+    expect(await keys('dlq/z-cloudbase-logs-dlq/')).toEqual([]);
     // The events DLQ archive is untouched by a logs replay.
-    expect(await keys('dlq/cloudbase-events-dlq/')).toHaveLength(1);
-    expect(await replayDlq({ ...baseEnv, LOGS_QUEUE: logs } as any, 'cloudbase-logs-dlq')).toBe(0);
+    expect(await keys('dlq/z-cloudbase-events-dlq/')).toHaveLength(1);
+    expect(await replayDlq({ ...baseEnv, LOGS_QUEUE: logs } as any, 'z-cloudbase-logs-dlq')).toBe(0);
   });
 
   it('replays only the requested date and keeps the archive object when the re-enqueue fails', async () => {
-    await baseEnv.ARCHIVE.put('dlq/cloudbase-events-dlq/2020-01-01/old.json', JSON.stringify({ body: { old: true } }));
+    await baseEnv.ARCHIVE.put('dlq/z-cloudbase-events-dlq/2020-01-01/old.json', JSON.stringify({ body: { old: true } }));
     const events = queue();
-    expect(await replayDlq({ ...baseEnv, EVENTS_QUEUE: events } as any, 'cloudbase-events-dlq', { date: '2020-01-01' })).toBe(1);
+    expect(await replayDlq({ ...baseEnv, EVENTS_QUEUE: events } as any, 'z-cloudbase-events-dlq', { date: '2020-01-01' })).toBe(1);
     expect(events.bodies).toEqual([{ old: true }]);
-    expect(await keys('dlq/cloudbase-events-dlq/2020-01-01/')).toEqual([]);
-    expect(await keys('dlq/cloudbase-events-dlq/')).toHaveLength(1); // today's untouched
+    expect(await keys('dlq/z-cloudbase-events-dlq/2020-01-01/')).toEqual([]);
+    expect(await keys('dlq/z-cloudbase-events-dlq/')).toHaveLength(1); // today's untouched
 
     const down = { sendBatch: async () => { throw new Error('queue down'); } };
-    await expect(replayDlq({ ...baseEnv, EVENTS_QUEUE: down } as any, 'cloudbase-events-dlq')).rejects.toThrow('queue down');
-    expect(await keys('dlq/cloudbase-events-dlq/')).toHaveLength(1);
+    await expect(replayDlq({ ...baseEnv, EVENTS_QUEUE: down } as any, 'z-cloudbase-events-dlq')).rejects.toThrow('queue down');
+    expect(await keys('dlq/z-cloudbase-events-dlq/')).toHaveLength(1);
   });
 
   it('routes environment-prefixed queue names (cloudbase-staging-*) like the local ones', async () => {
@@ -86,9 +86,9 @@ describe('DLQ archive + replay', () => {
 
   it('ConsumerOps (service-binding entrypoint) replays a known DLQ and rejects anything else', async () => {
     const ops = new ConsumerOps(createExecutionContext(), baseEnv);
-    await expect(ops.replayDlq('cloudbase-logs')).rejects.toThrow('Unknown DLQ');
-    await expect(ops.replayDlq('cloudbase-events-dlq', { date: '../x' })).rejects.toThrow('yyyy-mm-dd');
-    await expect(ops.replayDlq('cloudbase-logs-dlq', { date: '1999-01-01' })).resolves.toBe(0);
+    await expect(ops.replayDlq('z-cloudbase-logs')).rejects.toThrow('Unknown DLQ');
+    await expect(ops.replayDlq('z-cloudbase-events-dlq', { date: '../x' })).rejects.toThrow('yyyy-mm-dd');
+    await expect(ops.replayDlq('z-cloudbase-logs-dlq', { date: '1999-01-01' })).resolves.toBe(0);
     await expect(ops.replayDlq('cloudbase-staging-logs-dlq', { date: '1999-01-01' })).resolves.toBe(0);
     await expect(ops.replayDlq('cloudbase-staging-logs')).rejects.toThrow('Unknown DLQ');
   });

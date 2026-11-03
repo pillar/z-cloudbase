@@ -2,7 +2,7 @@ import { sha256Hex } from '@z-cloudbase/security';
 
 export type QueueRole = 'logs' | 'events' | 'logsDlq' | 'eventsDlq';
 
-// Local names are `cloudbase-{logs,events}[-dlq]`; a deployment uses its own resource prefix
+// Local names are `z-cloudbase-{logs,events}[-dlq]`; a deployment uses its own resource prefix
 // (`pnpm platform:deploy --prefix acme` → `acme-events`). Routing therefore goes by role suffix, never by an
 // exact name.
 const QUEUE_NAME_RE = /^[a-z0-9][a-z0-9-]*-(logs|events)(-dlq)?$/;

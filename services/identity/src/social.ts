@@ -45,7 +45,7 @@ const VERIFIED_PROVIDERS = new Set(['google', 'apple']);
  */
 export function verifiedIdTokens() {
   return {
-    id: 'cloudbase-verified-id-tokens',
+    id: 'z-cloudbase-verified-id-tokens',
     init: (ctx) => ({
       context: {
         socialProviders: ctx.socialProviders.map((p) => (VERIFIED_PROVIDERS.has(p.id) ? withIdTokenVerification(p) : p)),

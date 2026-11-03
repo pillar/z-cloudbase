@@ -1,7 +1,7 @@
 // `pnpm platform:deploy` — install or upgrade a self-hosted deployment in your Cloudflare account.
 //
 //   pnpm platform:deploy --admin-email you@example.com [--name "Acme Platform"] [--domain example.com]
-//                        [--prefix cloudbase] [--require-admin-2fa true|false] [--account-id <id>]
+//                        [--prefix z-cloudbase] [--require-admin-2fa true|false] [--account-id <id>]
 //                        [--location weur|eeur|apac|oc|wnam|enam] [--dry-run]
 //
 // Needs `wrangler login` (or CLOUDFLARE_API_TOKEN). Every step is idempotent, so the same command
@@ -34,7 +34,7 @@ import {
   type DeploymentRecord, type ResourceNames,
 } from './lib/wrangler.ts';
 
-const LOCAL = resourceNames('cloudbase');
+const LOCAL = resourceNames('z-cloudbase');
 const WORKERS = [
   { key: 'identity', dir: 'services/identity' },
   { key: 'consumer', dir: 'services/consumer' },
@@ -67,7 +67,7 @@ function options() {
       'dry-run': { type: 'boolean', default: false },
     },
   });
-  const prefix = values.prefix ?? 'cloudbase';
+  const prefix = values.prefix ?? 'z-cloudbase';
   if (!PREFIX_RE.test(prefix)) fail('--prefix: 3–30 characters, lowercase letters, digits and "-", starting with a letter');
   const domain = values.domain?.toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
   if (domain !== undefined && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain)) fail('--domain: a domain name such as example.com');
@@ -218,7 +218,7 @@ async function main() {
   const o = options();
   const record = readRecord(o.prefix);
   const names = resourceNames(o.prefix);
-  const name = o.name ?? record?.name ?? 'CloudBase';
+  const name = o.name ?? record?.name ?? 'z-cloudbase';
   const domain = o.domain ?? record?.domain ?? undefined;
   const requireAdmin2fa = o.require2fa ?? record?.requireAdmin2fa ?? false;
   let adminEmail = o['admin-email'] ?? record?.adminEmail;

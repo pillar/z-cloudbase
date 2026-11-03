@@ -1,4 +1,4 @@
-// `pnpm platform:reset-admin --email admin@example.com [--prefix cloudbase] [--disable-2fa]`
+// `pnpm platform:reset-admin --email admin@example.com [--prefix z-cloudbase] [--disable-2fa]`
 //
 // Administrator password recovery that needs no mail provider: puts a fresh random SETUP_TOKEN on the
 // deployment's identity worker (your Cloudflare login is the authority), calls /setup/reset-admin and
@@ -18,7 +18,7 @@ async function main() {
   const { values } = parseArgs({
     options: {
       email: { type: 'string' },
-      prefix: { type: 'string', default: 'cloudbase' },
+      prefix: { type: 'string', default: 'z-cloudbase' },
       issuer: { type: 'string' },
       'account-id': { type: 'string' },
       'disable-2fa': { type: 'boolean', default: false },

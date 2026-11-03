@@ -43,7 +43,7 @@ async function requests(browser: Browser): Promise<Req[]> {
   return ((await res.json()) as { requests: Req[] }).requests;
 }
 
-const objectKeys = async (productId: string) => r2Keys(stack(), 'cloudbase-storage', `${productId}/prod/files/`);
+const objectKeys = async (productId: string) => r2Keys(stack(), 'z-cloudbase-storage', `${productId}/prod/files/`);
 
 describe('§15-13 account-level requests start on the identity domain only', () => {
   it('product APIs offer no account deletion or export, whatever the token', async () => {
@@ -89,7 +89,7 @@ describe('§15-13 data export', () => {
     expect(doc.storage_objects.map((o) => o.id).sort()).toEqual(Object.values(u.files).sort());
     expect(JSON.stringify(doc)).not.toMatch(/password|hash|scrypt/i);
     // The export object exists in the private archive; nothing was deleted.
-    expect(await r2Keys(stack(), 'cloudbase-archive', `exports/${u.userId}/`)).toEqual([`exports/${u.userId}/${req.id}.json`]);
+    expect(await r2Keys(stack(), 'z-cloudbase-archive', `exports/${u.userId}/`)).toEqual([`exports/${u.userId}/${req.id}.json`]);
     expect((await objectKeys(a.productId)).some((k) => k.endsWith(u.files[a.productId]!))).toBe(true);
 
     // A link is not usable by anyone else (and stays usable by its owner), nor through the api origin;

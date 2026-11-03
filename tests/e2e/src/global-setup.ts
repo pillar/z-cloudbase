@@ -19,7 +19,7 @@ declare module 'vitest' {
 }
 
 export default async function setup(project: TestProject) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'cloudbase-e2e-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'z-cloudbase-e2e-'));
   await applyMigrations(dir);
   const running = await startStack({ persistTo: dir, logFile: path.join(dir, 'wrangler.log') });
   console.log(`[e2e] local stack on port ${running.port}; state + log in ${dir}`);

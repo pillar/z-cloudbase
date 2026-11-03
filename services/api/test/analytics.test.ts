@@ -76,7 +76,7 @@ describe('Analytics Engine SQL AnalyticsQuery (fake fetch; remote-unverified)', 
       daily: [{ day: '2026-03-01 00:00:00', events: '7', users: '2', anonymous: '1' }],
       top: [{ name: 'page_view', count: '7' }],
     });
-    const s = await aeAnalyticsQuery({ accountId: 'acc1', apiToken: 'tok', dataset: 'cloudbase_staging_events', fetch: fetchFn })
+    const s = await aeAnalyticsQuery({ accountId: 'acc1', apiToken: 'tok', dataset: 'z_cloudbase_staging_events', fetch: fetchFn })
       .summary({ productEnvId: 'an_a.prod', from: '2026-03-01', to: '2026-03-03' });
     expect(s).toEqual({
       daily: [{ day: '2026-03-01', users: 2, anonymous: 1, events: 7 }, { day: '2026-03-02', users: 0, anonymous: 0, events: 0 }],
@@ -89,7 +89,7 @@ describe('Analytics Engine SQL AnalyticsQuery (fake fetch; remote-unverified)', 
       expect(c.url).toBe('https://api.cloudflare.com/client/v4/accounts/acc1/analytics_engine/sql');
       expect(c.auth).toBe('Bearer tok');
       expect(c.sql).toContain("index1 = 'an_a.prod'");
-      expect(c.sql).toContain('FROM cloudbase_staging_events ');
+      expect(c.sql).toContain('FROM z_cloudbase_staging_events ');
       // Functions the AE SQL API rejects (verified against staging: "unknown function call: UNIQIF").
       expect(c.sql).not.toMatch(/\buniq/i);
     }

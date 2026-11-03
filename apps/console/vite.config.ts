@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 // index.html uses %VITE_PLATFORM_NAME%; Vite leaves unset variables verbatim, so give it the default.
-process.env.VITE_PLATFORM_NAME ||= 'CloudBase';
+process.env.VITE_PLATFORM_NAME ||= 'z-cloudbase';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

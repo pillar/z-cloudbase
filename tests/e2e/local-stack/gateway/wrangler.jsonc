@@ -5,14 +5,14 @@
 // one operator RPC (DLQ replay) that has no public HTTP route.
 {
   "$schema": "../../../../node_modules/wrangler/config-schema.json",
-  "name": "cloudbase-local-gateway",
+  "name": "z-cloudbase-local-gateway",
   "main": "gateway.js",
   "compatibility_date": "2026-10-01",
   // Defence in depth against an accidental deploy: no workers.dev route (and gateway.js only answers loopback hosts).
   "workers_dev": false,
   "services": [
-    { "binding": "IDENTITY", "service": "cloudbase-identity" },
-    { "binding": "API", "service": "cloudbase-api" },
-    { "binding": "CONSUMER_OPS", "service": "cloudbase-consumer", "entrypoint": "ConsumerOps" }
+    { "binding": "IDENTITY", "service": "z-cloudbase-identity" },
+    { "binding": "API", "service": "z-cloudbase-api" },
+    { "binding": "CONSUMER_OPS", "service": "z-cloudbase-consumer", "entrypoint": "ConsumerOps" }
   ]
 }

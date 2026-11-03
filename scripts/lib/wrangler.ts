@@ -98,7 +98,7 @@ export function writeRecord(r: DeploymentRecord): void {
   writeFileSync(recordPath(r.prefix), `${JSON.stringify(r, null, 2)}\n`);
 }
 
-/** Resource names of a deployment; local development uses the prefix `cloudbase`. */
+/** Resource names of a deployment; local development uses the prefix `z-cloudbase`. */
 export function resourceNames(prefix: string) {
   return {
     identity: `${prefix}-identity`,

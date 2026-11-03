@@ -2,7 +2,7 @@
 
 > 状态：v3.0（2026-11-03）。由私有 POC（PRD v2.2）派生为**开源、可自部署**的通用平台：软件开源（Apache-2.0），每个运营者把它部署到自己的 Cloudflare 账号，部署时设置平台名称，部署脚本为第一个管理员生成随机密码（§20）。v2.2 的功能与技术规格（§1–§19）继续有效，本版的修改以 v3.0 标注。  
 > 日期：2026-10-08（v2.2）/ 2026-11-03（v3.0）  
-> 命名：项目名 `z-cloudbase`；SDK 包名 `@z-cloudbase/*`，请求头 `X-Platform-Key`，token audience `urn:platform:{product_id}.{env}`。每个部署的显示名称（`PLATFORM_NAME`）与 Cloudflare 资源前缀（默认 `cloudbase`）由部署方配置。  
+> 命名：项目名 `z-cloudbase`；SDK 包名 `@z-cloudbase/*`，请求头 `X-Platform-Key`，token audience `urn:platform:{product_id}.{env}`。每个部署的显示名称（`PLATFORM_NAME`）与 Cloudflare 资源前缀（默认 `z-cloudbase`）由部署方配置。  
 > 定位：基于 Cloudflare 构建的轻量级、多产品共享基础后端平台；借鉴 Supabase 常用能力，但不追求兼容完整 Supabase API。
 
 ## 0. 执行摘要
@@ -728,7 +728,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 
 | 项 | 规格 |
 |---|---|
-| 输入 | `--admin-email`（首次必填）、`--name`（显示名，默认 CloudBase）、`--domain`（可选；有则使用 `id.` / `api.` / `console.` 三个 custom domain，否则用账号的 workers.dev 子域）、`--prefix`（资源前缀，默认 `cloudbase`）、`--require-admin-2fa`、`--account-id`、`--location`、`--dry-run` |
+| 输入 | `--admin-email`（首次必填）、`--name`（显示名，默认 z-cloudbase）、`--domain`（可选；有则使用 `id.` / `api.` / `console.` 三个 custom domain，否则用账号的 workers.dev 子域）、`--prefix`（资源前缀，默认 `z-cloudbase`）、`--require-admin-2fa`、`--account-id`、`--location`、`--dry-run` |
 | 资源命名 | Worker `{prefix}-identity/-api/-consumer/-console`；D1 `{prefix}-platform`、`{prefix}-ingest`；R2 `{prefix}-storage`、`{prefix}-archive`；Queues `{prefix}-logs`、`{prefix}-events` 及 `-dlq`；AE 数据集 `{prefix}_events`（`-` 换成 `_`） |
 | 幂等 | 已存在的资源不重建；迁移按 D1 迁移表增量执行；同一命令用于升级。首次的设置保存在 `.deploy/{prefix}.json`（不含密钥，gitignored） |
 | 密钥 | identity 的 `AUTH_SECRET` 只在 Worker 不存在时生成一次（之后绝不覆盖：会使全部会话与签名密钥失效）；`SETUP_TOKEN` 每次部署随机生成；其余可选 secret 从运营者的环境变量读取（邮件、Turnstile、Google / Apple、R2 S3 token、AE 查询 token），未提供时保留上次的值 |

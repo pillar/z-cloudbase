@@ -12,7 +12,7 @@ pnpm bootstrap:local --persist-to .wrangler-state
 
 Against the local D1 / R2 state in `--persist-to` (`.wrangler-state/` is gitignored; any throwaway directory works) it:
 
-1. applies both migration sets with `wrangler d1 migrations apply --local --persist-to` (`database/migrations` → `cloudbase-platform`, `database/ingest-migrations` → `cloudbase-ingest`);
+1. applies both migration sets with `wrangler d1 migrations apply --local --persist-to` (`database/migrations` → `z-cloudbase-platform`, `database/ingest-migrations` → `z-cloudbase-ingest`);
 2. starts the local stack for a moment (see below) and calls the identity worker's `POST /setup/install` with the stack's random `SETUP_TOKEN` — the same path a deployment uses: it registers the reserved `platform_console` OIDC client with the redirect URI `<console-origin>/`, and, when the state has no owner yet, creates the first administrator (`owner`, email verified) with a **random password that is printed once**;
 3. stops the stack.
 
@@ -31,7 +31,7 @@ wrangler dev -c tests/e2e/local-stack/gateway/wrangler.jsonc -c services/identit
 
 - `wrangler dev` with several `-c` only serves the **first** config over HTTP; the others are reachable only through service bindings ([multi-worker docs](https://developers.cloudflare.com/workers/development-testing/multi-workers/)). The first config is therefore a local-only gateway (never deployed) that forwards `http://localhost:<port>` to identity (`ISSUER`) and `http://127.0.0.1:<port>` to api (`API_ORIGIN`), and exposes the operator RPC that has no public route (DLQ replay).
 - `--var` also reaches only the first config, so `ISSUER`, `API_ORIGIN`, `AUTH_SECRET`, `UPLOAD_SIGNING_SECRET` and `SETUP_TOKEN` (all random per start) are passed through the process environment (`CLOUDFLARE_INCLUDE_PROCESS_ENV=true`, with an otherwise minimal environment). A `services/*/.dev.vars` file would take precedence, so the stack refuses to start while one exists. Because identity declares a `secrets` block, `wrangler dev` loads only the secrets listed there into it (`AUTH_SECRET`, `SETUP_TOKEN`).
-- Scheduled handlers and D1 / R2 inspection go through wrangler's Local Explorer API on the same port (`POST /cdn-cgi/local/explorer/api/local/scheduled?worker=cloudbase-consumer`); the primary-only `/cdn-cgi/handler/scheduled` (`--test-scheduled`) cannot reach the consumer.
+- Scheduled handlers and D1 / R2 inspection go through wrangler's Local Explorer API on the same port (`POST /cdn-cgi/local/explorer/api/local/scheduled?worker=z-cloudbase-consumer`); the primary-only `/cdn-cgi/handler/scheduled` (`--test-scheduled`) cannot reach the consumer.
 - A running `wrangler dev` does not see D1 writes made by another process (`wrangler d1 execute` on the same directory): apply migrations only while the stack is stopped. The bootstrap script does so; inside a running stack the tests use the Local Explorer instead.
 
 ## Turnstile in local development

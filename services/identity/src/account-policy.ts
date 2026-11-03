@@ -27,7 +27,7 @@ export function isFreshSession(createdAt: Date | string, now = Date.now()): bool
 export function accountPolicy(deps: { db: D1Database }) {
   const { db } = deps;
   return {
-    id: 'cloudbase-account-policy',
+    id: 'z-cloudbase-account-policy',
     init: () => ({
       options: {
         databaseHooks: {

@@ -150,7 +150,7 @@ describe('§15-11 queue failure and DLQ recovery drill', () => {
 
       const day = new Date().toISOString().slice(0, 10);
       const dead = await poll('dead letter in the archive', async () => {
-        const keys = await r2Keys(stack(), 'cloudbase-archive', `dlq/cloudbase-events-dlq/${day}/`);
+        const keys = await r2Keys(stack(), 'z-cloudbase-archive', `dlq/z-cloudbase-events-dlq/${day}/`);
         return keys.length ? keys : null;
       }, 90_000, 1000);
       expect(dead.length).toBeGreaterThanOrEqual(1);
@@ -159,8 +159,8 @@ describe('§15-11 queue failure and DLQ recovery drill', () => {
       await d1(stack(), 'ingest', 'DROP TRIGGER IF EXISTS e2e_dlq_fault');
     }
 
-    expect(await replayDlq(stack(), 'cloudbase-events-dlq')).toBeGreaterThanOrEqual(1);
+    expect(await replayDlq(stack(), 'z-cloudbase-events-dlq')).toBeGreaterThanOrEqual(1);
     await poll('replayed event counted', async () => countOf(await summary(p.prod), 'dlq_drill') === 1, 60_000, 1000);
-    expect(await r2Keys(stack(), 'cloudbase-archive', 'dlq/cloudbase-events-dlq/')).toEqual([]);
+    expect(await r2Keys(stack(), 'z-cloudbase-archive', 'dlq/z-cloudbase-events-dlq/')).toEqual([]);
   });
 });

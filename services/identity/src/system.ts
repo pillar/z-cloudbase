@@ -31,7 +31,7 @@ const SYSTEM_SESSION = {
 
 export function systemPrincipal() {
   return {
-    id: 'cloudbase-system-principal',
+    id: 'z-cloudbase-system-principal',
     hooks: {
       before: [
         {

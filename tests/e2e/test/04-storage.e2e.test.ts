@@ -54,7 +54,7 @@ describe('§15-9 private storage', () => {
     expect(res.headers.get('content-disposition')).toMatch(/^attachment/);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
     // Stored under the product / env / bucket / owner prefix.
-    const keys = await r2Keys(stack(), 'cloudbase-storage', `${a.productId}/prod/avatars/`);
+    const keys = await r2Keys(stack(), 'z-cloudbase-storage', `${a.productId}/prod/avatars/`);
     expect(keys.some((k) => k.endsWith(objectId))).toBe(true);
   });
 
@@ -86,7 +86,7 @@ describe('§15-9 private storage', () => {
     appA.tab.activate();
     await appA.sdk.storage.delete(objectId);
     await expect(appA.sdk.storage.getDownloadUrl(objectId)).rejects.toMatchObject({ code: 'not_found' });
-    const keys = await r2Keys(stack(), 'cloudbase-storage', `${a.productId}/prod/avatars/`);
+    const keys = await r2Keys(stack(), 'z-cloudbase-storage', `${a.productId}/prod/avatars/`);
     expect(keys.some((k) => k.endsWith(objectId))).toBe(false);
     const audit = await admin<{ entries: Array<{ action: string; target_id: string; actor_type: string }> }>(ownerToken, 'GET', `/audit?product_id=${a.productId}`);
     expect(audit.body.entries).toContainEqual(expect.objectContaining({ action: 'storage.object.delete', target_id: objectId, actor_type: 'user' }));
@@ -116,7 +116,7 @@ describe('stale pending uploads (consumer cron)', () => {
 
     await poll('pending row reaped', async () =>
       (await d1(stack(), 'platform', 'SELECT id FROM storage_objects WHERE id = ?', [target.object_id])).length === 0);
-    const keys = await r2Keys(stack(), 'cloudbase-storage', `${a.productId}/prod/avatars/`);
+    const keys = await r2Keys(stack(), 'z-cloudbase-storage', `${a.productId}/prod/avatars/`);
     expect(keys.some((k) => k.endsWith(target.object_id))).toBe(false);
     const audit = await admin<{ entries: Array<{ action: string; target_id: string; actor_type: string }> }>(ownerToken, 'GET', `/audit?product_id=${a.productId}`);
     expect(audit.body.entries).toContainEqual(expect.objectContaining({ action: 'storage.pending_upload.reaped', target_id: target.object_id, actor_type: 'system' }));

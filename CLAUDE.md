@@ -39,7 +39,8 @@ tests/e2e           跨 Worker 端到端、越权测试
 
 - 已验证版本：Node v24、pnpm 12.10.1、TypeScript 7.0.2、wrangler 4.148、vitest 4.1.x（`@cloudflare/vitest-plugin` 1.3.7 要求 vitest ^4.1，**不要升级到 vitest 5**）、hono 4.13、zod 4.6、jose 6.2。
 - **Worker 配置使用 `wrangler.jsonc`，不使用 `cf` 的 `cloudflare.config.ts`**：`@cloudflare/vitest-plugin` 只读取 `wrangler.configPath`；两套配置并存会让绑定漂移。将来迁移到 `cf` 时先按 `~/.codex/cloudflare-cf-usage.md` §7 执行 `cf migrate --dry-run`。
-- 仓库里的 `wrangler.jsonc` 只有本地值（`cloudbase-*` 名称、占位 `database_id`）。部署配置由 `scripts/platform-deploy.ts` 生成为同目录的 `wrangler.<prefix>.deploy.jsonc`（gitignored）：按前缀改写资源名，填入真实 D1 id、URL 和 vars，去掉 `dev` 与 `secrets` 段。新增绑定时，确认生成逻辑（`rename` 映射、`resourceNames`）覆盖到它，并用 `--dry-run` 检查。
+- 仓库里的 `wrangler.jsonc` 只有本地值（`z-cloudbase-*` 名称、占位 `database_id`）。部署配置由 `scripts/platform-deploy.ts` 生成为同目录的 `wrangler.<prefix>.deploy.jsonc`（gitignored）：按前缀改写资源名，填入真实 D1 id、URL 和 vars，去掉 `dev` 与 `secrets` 段。新增绑定时，确认生成逻辑（`rename` 映射、`resourceNames`）覆盖到它，并用 `--dry-run` 检查。
+- 默认值：部署前缀 `z-cloudbase`（与本地资源名相同，生成逻辑以 `resourceNames('z-cloudbase')` 为改写基准），平台显示名 `z-cloudbase`（`services/identity/src/platform.ts`、`apps/console/src/brand.ts`、`platform-deploy.ts` 三处一致）。
 - identity 的 `secrets.required` 同时决定 `wrangler dev` 在本地加载哪些 secret（声明了 `secrets` 块后只加载列出的名字），所以 `SETUP_TOKEN` 也列在其中。
 - consumer 按队列名后缀（`-logs` / `-events` / `-dlq`）路由，与前缀无关。
 - 部署顺序：identity → consumer → api（api / consumer 通过服务绑定依赖 identity）→ console。identity 的 `AUTH_SECRET` 只在 Worker 不存在时生成，**绝不能覆盖**（会让全部会话失效、签名私钥无法解密）。

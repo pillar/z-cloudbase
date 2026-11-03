@@ -49,9 +49,9 @@ Administrator (the password is shown only now — store it in a password manager
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `--admin-email` | （交互询问） | 第一个管理员，首次部署必填 |
-| `--name` | `CloudBase` | 平台显示名：登录页、邮件、TOTP 发行方、控制台 |
+| `--name` | `z-cloudbase` | 平台显示名：登录页、邮件、TOTP 发行方、控制台 |
 | `--domain` | workers.dev | 使用该域名下的 `id.` / `api.` / `console.` 子域 |
-| `--prefix` | `cloudbase` | 资源名前缀；同一账号部署多套平台时用不同前缀 |
+| `--prefix` | `z-cloudbase` | 资源名前缀；同一账号部署多套平台时用不同前缀 |
 | `--require-admin-2fa` | `false` | `true` 表示管理员必须先绑定 TOTP 才能使用控制台 |
 | `--account-id` | 唯一的账号 | 登录身份下有多个账号时指定 |
 | `--location` | 自动 | D1 / R2 位置提示（`weur`、`enam` 等） |

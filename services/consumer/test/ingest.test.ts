@@ -18,7 +18,7 @@ const indexRows = async (productEnvId: string) =>
 describe('logs consumer', () => {
   it('archives NDJSON under the product/env/date/hour partition, indexes request ids, and acks', async () => {
     const m = logMessage('lc_a', 'prod', { message: 'checkout failed', level: 'error', request_id: 'req_user', ingest: 'req_ing', received: at('07:30'), timestamp: at('07:29') });
-    const r = await deliver('cloudbase-logs', [m]);
+    const r = await deliver('z-cloudbase-logs', [m]);
     expect(r.acked).toHaveLength(1);
     expect(r.retried).toEqual([]);
 
@@ -33,7 +33,7 @@ describe('logs consumer', () => {
 
   it('makes a log findable by request_id for its own product only', async () => {
     const t = at('08:10');
-    await deliver('cloudbase-logs', [
+    await deliver('z-cloudbase-logs', [
       logMessage('lc_b', 'prod', { message: 'b log', request_id: 'req_shared', received: t, timestamp: t }),
       logMessage('lc_c', 'prod', { message: 'c log', request_id: 'req_shared', received: t, timestamp: t }),
     ]);
@@ -55,14 +55,14 @@ describe('logs consumer', () => {
         get: (t, p) => (p === 'put' ? async (key: string, ...rest: unknown[]) => { if (key.includes('/lc_bad/')) throw new Error('r2 down'); return (t.put as Function)(key, ...rest); } : (t as any)[p]?.bind(t)),
       }),
     };
-    const r = await deliver('cloudbase-logs', [logMessage('lc_good', 'prod'), logMessage('lc_bad', 'prod'), logMessage('lc_good', 'prod')], flaky as any);
+    const r = await deliver('z-cloudbase-logs', [logMessage('lc_good', 'prod'), logMessage('lc_bad', 'prod'), logMessage('lc_good', 'prod')], flaky as any);
     expect(r.acked).toHaveLength(2);
     expect(r.retried).toHaveLength(1);
     expect(await indexRows('lc_bad.prod')).toEqual([]);
   });
 
   it('retries malformed messages (they end up in the DLQ) without blocking valid ones', async () => {
-    const r = await deliver('cloudbase-logs', [{ junk: true }, logMessage('lc_mal', 'prod'), logMessage('Bad Product', 'prod'), logMessage('lc_mal', 'qa')]);
+    const r = await deliver('z-cloudbase-logs', [{ junk: true }, logMessage('lc_mal', 'prod'), logMessage('Bad Product', 'prod'), logMessage('lc_mal', 'qa')]);
     expect(r.acked).toHaveLength(1);
     expect(r.retried).toHaveLength(3);
   });
@@ -70,7 +70,7 @@ describe('logs consumer', () => {
   it('is idempotent on redelivery: the same messages produce one object and one set of index rows', async () => {
     const items = [{ id: 'redeliver-1', body: logMessage('lc_re', 'prod', { request_id: 'req_re', ingest: 'req_re_i', received: at('09:00') }) }];
     for (let i = 0; i < 2; i++) {
-      const batch = fixedBatch('cloudbase-logs', items);
+      const batch = fixedBatch('z-cloudbase-logs', items);
       const ctx = createExecutionContext();
       await worker.queue(batch, baseEnv, ctx);
       await waitOnExecutionContext(ctx);
@@ -85,7 +85,7 @@ describe('events consumer', () => {
   it('writes the Analytics Engine data point, the substitute row and the raw archive, then acks', async () => {
     const ae = fakeAe();
     const m = eventMessage('ec_a', 'prod', { event_name: 'signup', anonymous_id: 'dev-1', user_key: 'uk_1', occurred_at: at('10:00'), received: at('10:01') });
-    const r = await deliver('cloudbase-events', [m], { ...baseEnv, EVENTS_AE: ae });
+    const r = await deliver('z-cloudbase-events', [m], { ...baseEnv, EVENTS_AE: ae });
     expect(r.acked).toHaveLength(1);
     expect(ae.points).toEqual([{ indexes: ['ec_a.prod'], blobs: ['ec_a', 'prod', 'signup', 'uk_1', 'dev-1'], doubles: [1] }]);
     const keys = await listKeys('events/ec_a/prod/2026/06/02/');
@@ -96,7 +96,7 @@ describe('events consumer', () => {
   });
 
   it('shows an event in the summary of its own product and not of another', async () => {
-    await deliver('cloudbase-events', [
+    await deliver('z-cloudbase-events', [
       eventMessage('ec_b', 'prod', { event_name: 'only_b', user_key: 'ub', occurred_at: at('11:00') }),
       eventMessage('ec_c', 'prod', { event_name: 'only_c', anonymous_id: 'dc', occurred_at: at('11:00') }),
     ], { ...baseEnv, EVENTS_AE: fakeAe() });
@@ -114,8 +114,8 @@ describe('events consumer', () => {
   it('counts a duplicate event_id once, even when it is delivered in separate batches', async () => {
     const ae = fakeAe();
     const m = eventMessage('ec_d', 'prod', { occurred_at: at('12:00') });
-    await deliver('cloudbase-events', [m], { ...baseEnv, EVENTS_AE: ae });
-    await deliver('cloudbase-events', [m, m], { ...baseEnv, EVENTS_AE: ae });
+    await deliver('z-cloudbase-events', [m], { ...baseEnv, EVENTS_AE: ae });
+    await deliver('z-cloudbase-events', [m, m], { ...baseEnv, EVENTS_AE: ae });
     expect(ae.points).toHaveLength(1);
     expect((await analyticsQuery(baseEnv).summary({ productEnvId: 'ec_d.prod', ...day })).events_total).toBe(1);
   });
@@ -132,7 +132,7 @@ describe('events consumer', () => {
       }),
     };
     const run = async () => {
-      const batch = fixedBatch('cloudbase-events', items);
+      const batch = fixedBatch('z-cloudbase-events', items);
       const ctx = createExecutionContext();
       await worker.queue(batch, flaky as any, ctx);
       await waitOnExecutionContext(ctx);
@@ -149,7 +149,7 @@ describe('events consumer', () => {
 
   it('retries malformed messages and never writes them', async () => {
     const ae = fakeAe();
-    const r = await deliver('cloudbase-events', [{ product_id: 'ec_f', environment: 'prod', event: { event_name: 'x' } }], { ...baseEnv, EVENTS_AE: ae });
+    const r = await deliver('z-cloudbase-events', [{ product_id: 'ec_f', environment: 'prod', event: { event_name: 'x' } }], { ...baseEnv, EVENTS_AE: ae });
     expect(r.retried).toHaveLength(1);
     expect(ae.points).toHaveLength(0);
   });

@@ -25,7 +25,7 @@ export function mfaPolicy(deps: { db: D1Database }) {
   const audit = (userId: string, action: string) =>
     writeAudit(db, { actorType: 'user', actorId: userId, action, targetType: 'user', targetId: userId });
   return {
-    id: 'cloudbase-mfa-policy',
+    id: 'z-cloudbase-mfa-policy',
     init: () => ({
       options: {
         databaseHooks: {

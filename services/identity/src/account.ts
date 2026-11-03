@@ -216,7 +216,7 @@ account.get('/account/export-links/:token', async (c) => {
   return new Response(obj.body, {
     headers: {
       'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="cloudbase-export-${link.request_id}.json"`,
+      'Content-Disposition': `attachment; filename="z-cloudbase-export-${link.request_id}.json"`,
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',

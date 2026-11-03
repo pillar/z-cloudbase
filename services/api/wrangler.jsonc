@@ -2,7 +2,7 @@
 // database_id / bucket / queue names are local placeholders; `pnpm platform:deploy` generates the real ones (scripts/deploy.ts).
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "cloudbase-api",
+  "name": "z-cloudbase-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -12,23 +12,23 @@
     "API_ORIGIN": "http://localhost:8788",
     "DEPLOY_ENV": "local",
     // Analytics Engine dataset the consumer writes (its EVENTS_AE binding); read via the AE SQL API.
-    "AE_DATASET": "cloudbase_events"
+    "AE_DATASET": "z_cloudbase_events"
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" },
-    { "binding": "INGEST_DB", "database_name": "cloudbase-ingest", "database_id": "00000000-0000-4000-8000-000000000002", "migrations_dir": "../../database/ingest-migrations" }
+    { "binding": "DB", "database_name": "z-cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" },
+    { "binding": "INGEST_DB", "database_name": "z-cloudbase-ingest", "database_id": "00000000-0000-4000-8000-000000000002", "migrations_dir": "../../database/ingest-migrations" }
   ],
   "r2_buckets": [
-    { "binding": "STORAGE", "bucket_name": "cloudbase-storage" },
-    { "binding": "ARCHIVE", "bucket_name": "cloudbase-archive" }
+    { "binding": "STORAGE", "bucket_name": "z-cloudbase-storage" },
+    { "binding": "ARCHIVE", "bucket_name": "z-cloudbase-archive" }
   ],
   "queues": {
     "producers": [
-      { "binding": "LOGS_QUEUE", "queue": "cloudbase-logs" },
-      { "binding": "EVENTS_QUEUE", "queue": "cloudbase-events" }
+      { "binding": "LOGS_QUEUE", "queue": "z-cloudbase-logs" },
+      { "binding": "EVENTS_QUEUE", "queue": "z-cloudbase-events" }
     ]
   },
-  "services": [{ "binding": "IDENTITY", "service": "cloudbase-identity", "entrypoint": "IdentityRpc" }],
+  "services": [{ "binding": "IDENTITY", "service": "z-cloudbase-identity", "entrypoint": "IdentityRpc" }],
   "ratelimits": [
     { "name": "INGEST_LIMITER", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } }
   ],

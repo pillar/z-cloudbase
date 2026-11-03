@@ -78,7 +78,7 @@ function authorizeAgain(query: Record<string, unknown>): string {
 export function oauthPolicy(deps: { db: D1Database; issuer: string; requireAdmin2fa: boolean }) {
   const { db } = deps;
   return {
-    id: 'cloudbase-oauth-policy',
+    id: 'z-cloudbase-oauth-policy',
     init: () => ({
       options: {
         databaseHooks: {

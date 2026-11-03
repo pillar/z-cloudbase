@@ -52,9 +52,9 @@ Open the console URL, sign in, create your first product. To try it without touc
 | Flag | Default | |
 |---|---|---|
 | `--admin-email` | (asked) | First administrator; required on the first run |
-| `--name` | `CloudBase` | Display name on sign-in pages, emails, the TOTP issuer and the console |
+| `--name` | `z-cloudbase` | Display name on sign-in pages, emails, the TOTP issuer and the console |
 | `--domain` | workers.dev | Use `id.` / `api.` / `console.` custom domains of this zone |
-| `--prefix` | `cloudbase` | Resource name prefix; deploy several platforms to one account with different prefixes |
+| `--prefix` | `z-cloudbase` | Resource name prefix; deploy several platforms to one account with different prefixes |
 | `--require-admin-2fa` | `false` | `true`: administrators must enroll TOTP before using the console |
 | `--account-id` | the only account | When your login has several accounts |
 | `--location` | automatic | D1 / R2 location hint (`weur`, `enam`, …) |
