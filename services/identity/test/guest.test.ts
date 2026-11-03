@@ -73,7 +73,7 @@ describe('GET /guest', () => {
     expect(await userCount()).toBe(before);
   });
 
-  it(`is rate limited per IP like sign-up (${AUTH_RATE_PER_IP_PER_MIN} per minute)`, async () => {
+  it(`is rate limited per IP like sign-up (${AUTH_RATE_PER_IP_PER_MIN} per minute)`, { timeout: 30_000 }, async () => {
     const ip = `10.8.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
     await awayFromWindowEdge();
     for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN; i++) expect((await guestEntry(new CookieJar(), ip)).res.status).toBe(302);

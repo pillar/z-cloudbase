@@ -111,7 +111,7 @@ describe('magic link', () => {
     expect((await outbox(email)).map((m) => m.template)).toContain('magic_link_unavailable');
   });
 
-  it('is limited per IP like the other sign-in paths', async () => {
+  it('is limited per IP like the other sign-in paths', { timeout: 30_000 }, async () => {
     const ip = `10.77.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
     const statuses: number[] = [];
     await awayFromWindowEdge();

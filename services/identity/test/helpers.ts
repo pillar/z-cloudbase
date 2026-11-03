@@ -136,7 +136,8 @@ export async function auditRows(action: string, targetId: string) {
 
 /**
  * The limits count in fixed one-minute windows (PRD §19.6): a burst that straddles a window edge is
- * legitimately counted in two windows. Start window-sensitive tests well inside a window.
+ * legitimately counted in two windows. Start window-sensitive tests well inside a window (the wait can
+ * take up to `marginMs`, so such tests need a timeout above vitest's 5 s default).
  */
 export async function awayFromWindowEdge(marginMs = 10_000) {
   const left = 60_000 - (Date.now() % 60_000);

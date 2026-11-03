@@ -10,6 +10,13 @@ All notable changes to this project are documented here. The format follows
 - Identity pages: engine errors with a known code (wrong password, invalid code, banned, passkey second-factor rules) are shown in the page language; the support-session confirmation page and banner are bilingual and use the shared layout; refused browser navigations (rate limit, actions during a support session) get an HTML error page instead of the JSON body; light/dark styling, styled error alerts, a sign-out button on the account page.
 - Console: an owner without TOTP gets an explanation and a two-factor setup link instead of the raw `mfa_required` error; webhook delivery errors are readable; retention shows `–` for periods that have not started; dialog titles no longer run under the close button on phones; favicon.
 - Admin API: creating or updating a product with no redirect URI is a 400 `validation_failed` (it was a 500 from the identity RPC).
+- Deploy: the Turnstile site key is kept in the deployment record across upgrades (it fell back to the local testing key while the secret stayed, so due challenges could not pass); a deployment without Turnstile no longer ships the testing key.
+- Identity: each `/two-factor` attempt is counted once by the rate limit (it was counted twice).
+- CI: actions pinned to commit SHAs.
+
+### Added
+
+- The account data export includes second-factor metadata (TOTP on/off; passkey name, creation time, device type, backup state — never keys or codes).
 
 ## [0.2.0] - 2026-11-04
 

@@ -21,7 +21,7 @@ async function expectRateLimited(res: Response) {
 }
 
 describe('auth rate limiting', () => {
-  it(`allows ${AUTH_RATE_PER_IP_PER_MIN} sign-in attempts per IP per minute, then answers 429`, async () => {
+  it(`allows ${AUTH_RATE_PER_IP_PER_MIN} sign-in attempts per IP per minute, then answers 429`, { timeout: 30_000 }, async () => {
     await awayFromWindowEdge();
     const headers = { 'cf-connecting-ip': ip(), ...solved };
     for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN; i++) {
@@ -36,7 +36,7 @@ describe('auth rate limiting', () => {
     expect((await call('/api/auth/sign-in/email', { json: { email: uniqueEmail(), password: PASSWORD } })).status).toBe(401);
   });
 
-  it('counts concurrent attempts exactly: a burst from one IP gets no more than the limit through', async () => {
+  it('counts concurrent attempts exactly: a burst from one IP gets no more than the limit through', { timeout: 30_000 }, async () => {
     await awayFromWindowEdge();
     const headers = { 'cf-connecting-ip': ip(), ...solved };
     const burst = await Promise.all(Array.from({ length: AUTH_RATE_PER_IP_PER_MIN + 5 }, () =>
@@ -63,7 +63,7 @@ describe('auth rate limiting', () => {
     expect(rows.every((k) => /^(ip|acct):[0-9a-f]{64}$/.test(k))).toBe(true);
   });
 
-  it(`allows ${AUTH_RATE_PER_ACCOUNT_PER_MIN} attempts per account per minute across IPs`, async () => {
+  it(`allows ${AUTH_RATE_PER_ACCOUNT_PER_MIN} attempts per account per minute across IPs`, { timeout: 30_000 }, async () => {
     await awayFromWindowEdge();
     const email = uniqueEmail('target');
     for (let i = 0; i < AUTH_RATE_PER_ACCOUNT_PER_MIN; i++) {

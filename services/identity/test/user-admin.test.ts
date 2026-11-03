@@ -381,7 +381,7 @@ describe('impersonation (PRD §21.5.2)', () => {
     expect(decodeJwt((await ssoToProduct(admin.jar, P, ENV)).access_token)).toMatchObject({ sub: userId, act: { sub: admin.userId } });
   });
 
-  it('wrong confirmation codes: the request is cancelled after 5 (audited); the start form is rate limited per IP', async () => {
+  it('wrong confirmation codes: the request is cancelled after 5 (audited); the start form is rate limited per IP', { timeout: 30_000 }, async () => {
     const admin = await owner();
     const { userId } = await signUp(new CookieJar());
     const id = await requestImpersonation(admin.userId, userId);
