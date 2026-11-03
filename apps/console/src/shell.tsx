@@ -2,7 +2,8 @@
 // (breadcrumb, language, theme). Routes are hash-based: `#/` products, `#/p/<id>/<section>`.
 import type { ReactNode } from 'react';
 import { PLATFORM_NAME } from './brand.ts';
-import { Boxes, Check, ChevronsUpDown, Languages, LogOut, Monitor, Moon, Package, Sun } from 'lucide-react';
+import { BrandMark } from './brand-mark.tsx';
+import { Check, ChevronsUpDown, Languages, LogOut, MailPlus, Monitor, Moon, Package, Sun } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -20,7 +21,7 @@ import { defineMessages, useLocale, useT, type Locale } from './i18n.tsx';
 import { sectionMessages, visibleSections } from './pages/ProductDetail.tsx';
 import { useTheme, type Theme } from './theme.tsx';
 import type { ProductSummary } from './types.ts';
-import { useApp, useLoad } from './ui.tsx';
+import { isOwner, useApp, useLoad } from './ui.tsx';
 
 export const shellMessages = defineMessages({
   zh: {
@@ -28,6 +29,7 @@ export const shellMessages = defineMessages({
     platform: '平台',
     products: '产品',
     allProducts: '全部产品',
+    invitations: '邀请',
     switchProduct: '切换产品',
     language: '语言',
     theme: '主题',
@@ -46,6 +48,7 @@ export const shellMessages = defineMessages({
     platform: 'Platform',
     products: 'Products',
     allProducts: 'All products',
+    invitations: 'Invitations',
     switchProduct: 'Switch product',
     language: 'Language',
     theme: 'Theme',
@@ -61,9 +64,13 @@ export const shellMessages = defineMessages({
   },
 });
 
+/** Platform-level pages outside any product (`#/<page>`). */
+export type PlatformPage = 'invitations';
+
 export interface Route {
   productId?: string;
   section?: string;
+  platformPage?: PlatformPage;
 }
 
 export function Shell({ route, onSignOut, children }: { route: Route; onSignOut: () => void; children: ReactNode }) {
@@ -97,9 +104,7 @@ function AppSidebar({ route, onSignOut }: { route: Route; onSignOut: () => void 
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <a href="#/">
-                <div className="bg-primary text-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Boxes className="size-4" />
-                </div>
+                <BrandMark />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-semibold">{PLATFORM_NAME}</span>
                   <span className="text-muted-foreground truncate text-xs">{t.console}</span>
@@ -115,13 +120,23 @@ function AppSidebar({ route, onSignOut }: { route: Route; onSignOut: () => void 
           <SidebarGroupLabel>{t.platform}</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive={!route.productId} tooltip={t.products}>
+              <SidebarMenuButton asChild isActive={!route.productId && !route.platformPage} tooltip={t.products}>
                 <a href="#/">
                   <Package />
                   <span>{t.products}</span>
                 </a>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            {isOwner(me) && (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={route.platformPage === 'invitations'} tooltip={t.invitations}>
+                  <a href="#/invitations">
+                    <MailPlus />
+                    <span>{t.invitations}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </SidebarGroup>
 
@@ -234,7 +249,13 @@ function TopBar({ route }: { route: Route }) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            {route.productId ? <BreadcrumbLink href="#/">{t.products}</BreadcrumbLink> : <BreadcrumbPage>{t.products}</BreadcrumbPage>}
+            {route.platformPage ? (
+              <BreadcrumbPage>{t[route.platformPage]}</BreadcrumbPage>
+            ) : route.productId ? (
+              <BreadcrumbLink href="#/">{t.products}</BreadcrumbLink>
+            ) : (
+              <BreadcrumbPage>{t.products}</BreadcrumbPage>
+            )}
           </BreadcrumbItem>
           {route.productId && (
             <>
