@@ -322,7 +322,7 @@ app.post('/webhooks/platform', express.text({ type: '*/*' }), async (req, res) =
 - 签名遵循 [Standard Webhooks](https://www.standardwebhooks.com/)：`webhook-id`、`webhook-timestamp`、`webhook-signature`（`v1,` + HMAC-SHA256），任何语言都可以按该规范自行验证；时间戳与当前时间相差超过 5 分钟视为重放。
 - 只有 2xx 算成功；10 秒超时，不跟随重定向。失败后按 15 分钟、30 分钟、1、2、4、8、12 小时重试，共 8 次（约 28 小时）后放弃。尽快返回 2xx，耗时处理放到队列里。
 - 轮换密钥后，旧密钥还会并行签名 24 小时（签名头里有两个签名），在这段时间内更新环境变量即可。
-- 控制台可「发送测试」（`webhook.test` 事件）并查看最近 100 次投递记录（状态码、耗时、错误、响应前 256 字符）。
+- 控制台可「发送测试」（`webhook.test` 事件）并查看最近 100 次投递记录（状态码、耗时、错误；2xx 记录响应前 256 字符，失败只记状态行）。
 
 ### 5.2 服务端日志与事件
 

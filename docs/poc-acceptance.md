@@ -86,6 +86,7 @@
 | Passkey：注册 / 登录 / 删除、UV 必需、RP 固定为 issuer、OIDC 流程中继续授权、满足控制台 MFA | identity：`passkey.test.ts`（软件认证器 `test/webauthn.ts`）；e2e：`08-sign-in-methods` | 本地已验证（软件认证器）；真实设备 / 浏览器 WebAuthn **未验证** |
 | Magic link：一次性、哈希存储、回调限制、继续授权、TOTP 账号不发链接、限流 | identity：`magic-link.test.ts`；e2e：`08-sign-in-methods` | 本地已验证（outbox）；真实投递**远程未验证** |
 | 登录页与邮件中英双语、品牌值校验 | identity：`i18n-brand.test.ts`；console：`brand.test.ts`；e2e：`08-sign-in-methods` | 本地已验证 |
+| Passkey 注册的第二因素前置条件（已有 TOTP / Passkey 时需本会话 5 分钟内通过第二因素）、添加通知邮件 | identity：`passkey.test.ts` | 本地已验证（邮件为本地 outbox） |
 
 ## v3.1：封禁、代登录、用户导出、产品 Webhook（PRD §21.5–21.6）
 
@@ -93,8 +94,10 @@
 |---|---|---|
 | 封禁 / 解封：所有登录方式在会话创建处拦截，撤销会话与产品 token，refresh 被拒，api 返回 `user_banned`，到期自动解封；社交登录回跳显示封禁提示 | identity：`user-admin.test.ts`；api：`admin-user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
 | 代登录：仅 owner、需已开启 TOTP 且 5 分钟内验证、不可代登录团队成员、60 分钟上限、token 带 `act`、控制台与账号安全操作被拒、停止后恢复 owner 会话、全程审计 | identity：`user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 代登录加固：确认表单限流与 5 次错误取消、只进入用户登录过的产品环境、带 `act` 的 token 不能退出产品 / 删除文件（`impersonation_restricted`）、审计记 `metadata.actor_id`、会话不续期、失效会话即时删除、`act` 到期边界拒签、end-session 结束记录 | identity：`user-admin.test.ts`；api：`me.test.ts`、`storage.test.ts`、`audit.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
 | 用户 CSV 导出：按产品环境、邮箱需显式请求、公式注入防护、审计、跨产品隔离 | api：`admin-user-admin.test.ts`、`admin-isolation.test.ts` | 本地已验证 |
 | Webhook：Standard Webhooks 签名（参考向量）、SSRF 校验、重试退避与放弃、投递记录、跨产品隔离、`verifyWebhook()` | webhooks / security / api / consumer 单元测试；e2e：`08-user-admin-webhooks`（本地接收端） | 本地已验证；真实出站请求**远程未验证** |
+| Analytics Engine SQL：值只允许纯字面量（breakdown 筛选含引号 / 反斜杠 400；AE 返回的不安全值不进第二条查询） | api：`analytics.test.ts`（假 fetch）、`admin-analytics.test.ts` | 本地已验证；真实 AE SQL **远程未验证** |
 
 ## 派生前的远程验证摘要（2026-10-09）
 

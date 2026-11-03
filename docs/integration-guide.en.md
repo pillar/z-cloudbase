@@ -324,7 +324,7 @@ app.post('/webhooks/platform', express.text({ type: '*/*' }), async (req, res) =
 - Signatures follow [Standard Webhooks](https://www.standardwebhooks.com/): `webhook-id`, `webhook-timestamp`, `webhook-signature` (`v1,` + HMAC-SHA256); any language can verify per that specification. A timestamp more than 5 minutes away from the current time is treated as a replay.
 - Only 2xx counts as success; 10-second timeout, redirects are not followed. After a failure, delivery is retried after 15 minutes, 30 minutes, 1, 2, 4, 8 and 12 hours, 8 attempts in total (about 28 hours) before giving up. Return 2xx quickly and move slow processing to a queue.
 - After rotating the secret, the old secret keeps signing in parallel for 24 hours (the signature header carries two signatures); update the environment variable within that window.
-- The console can "send a test" (the `webhook.test` event) and shows the latest 100 deliveries (status code, duration, error, first 256 characters of the response).
+- The console can "send a test" (the `webhook.test` event) and shows the latest 100 deliveries (status code, duration, error; the first 256 characters of a 2xx response, only the status line for failures).
 
 ### 5.2 Server-side logs and events
 

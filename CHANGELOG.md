@@ -28,6 +28,15 @@ Platform v3.1 (PRD §21). SDKs `@z-cloudbase/web` and `@z-cloudbase/server` are 
 - Event queue messages carry up to 25 events (the consumer still accepts the old single-event messages).
 - `pnpm platform:reset-admin --disable-2fa` also removes passkeys.
 
+### Security
+
+- Adding a passkey to an account that already has TOTP or a passkey requires a second factor on the current session within 5 minutes (`SECOND_FACTOR_REQUIRED`); an added passkey is announced by mail.
+- Impersonation confirmation is rate limited per IP and cancelled after 5 wrong codes (`user.impersonation.cancel`).
+- Product tokens with an `act` claim cannot leave the product or delete storage objects (403 `impersonation_restricted`); audit rows record the owner as `metadata.actor_id`; support sessions only enter product environments the user signed in to.
+- Impersonation sessions are never extended and are refused once the impersonation is no longer active; no token without `act` is issued at the expiry boundary; any logout ends the impersonation record (`signed_out`).
+- Analytics Engine queries never interpolate values with quotes, backslashes or control characters (breakdown filters: 400; unsafe values from AE: `users: null`).
+- Webhook SSRF guard also refuses 6to4, Teredo and 6to4-relay literals; failed deliveries record only the status line.
+
 ## [0.1.0] - 2026-11-04
 
 First open-source release.
