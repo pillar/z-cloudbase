@@ -134,3 +134,14 @@ pnpm platform:deploy --dry-run                       # 只在本地生成部署�
 | 10 | consumer 手工解析 `product_env_id` | 改用 contracts 的 `parseClientId` | 回归测试通过 |
 
 - 残留风险：匿名升级到 Email 时，必须明确告诉用户发生了冲突（PRD §19.7），所以 409 在设计上就会暴露“该邮箱已注册”，限流只能降低探测速度。MVP 可以考虑先发验证邮件，冲突信息只在邮件里告知。
+
+## v3.1 数据采集、分析与归档（PRD §21.7–21.9，2026-11-04，本地）
+
+| 能力 | 覆盖用例 | 状态 |
+|---|---|---|
+| Web SDK 错误 / Web Vitals / 点击采集、同意开关、用户属性 | `packages/sdk-web/test/capture.test.ts`（浏览器 API 为测试替身：PerformanceObserver、元素对象） | 本地已验证（真实浏览器未测） |
+| 服务端派生上下文、打包队列消息、服务密钥 `user_id` 归属、用户属性接口 | `services/api/test/events-collection.test.ts`；`request.cf.country` 在本地为空 | 本地已验证 / 国家维度远程待验证 |
+| consumer 写 `event_rows` / `actor_daily` / `actors`、gzip 归档、重投递幂等、保留期清理、归档到期删除、删除用户的分析数据与导出抑制 | `services/consumer/test/analytics-store.test.ts` | 本地已验证（D1 / R2 为 Miniflare） |
+| 漏斗、留存、分组、事件明细、设置、导出及每个路由的跨产品越权 | `services/api/test/admin-analytics.test.ts` | 本地已验证；生产环境的分组走 AE SQL，只用假 fetch 测过 SQL 拼接 → 远程待验证 |
+| 端到端：Web / Server SDK → 队列 → consumer → 漏斗 / 留存 / 分组 / 明细 / 导出，隔离与退出产品后的擦除 | `tests/e2e/test/08-analytics.e2e.test.ts` | 本地已验证 |
+| 容量（D1 行写入、Queues 操作、AE 250 点 / 调用、R2 Class A）与 Workers Free 10 ms CPU 下的导出 | PRD §21.8 估算，未压测 | 远程待验证 |

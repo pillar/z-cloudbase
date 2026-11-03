@@ -27,6 +27,17 @@ describe('rbac', () => {
   });
 });
 
+describe('analytics:export (PRD §21.9)', () => {
+  it('product admins export their product; developers only outside prod; operators never', () => {
+    expect(can([admin], 'analytics:export', { productId: 'product_a', env: 'prod' })).toBe(true);
+    expect(can([admin], 'analytics:export', { productId: 'product_b', env: 'prod' })).toBe(false);
+    expect(can([dev], 'analytics:export', { productId: 'product_a', env: 'dev' })).toBe(true);
+    expect(can([dev], 'analytics:export', { productId: 'product_a', env: 'prod' })).toBe(false);
+    expect(can([{ role: 'operator', productId: null }], 'analytics:export', { productId: 'product_a', env: 'dev' })).toBe(false);
+    expect(can([{ role: 'owner', productId: null }], 'analytics:export', { productId: 'product_a', env: 'prod' })).toBe(true);
+  });
+});
+
 describe('redact', () => {
   it('redacts sensitive keys at any depth', () => {
     expect(redact({ a: 1, password: 'x', nested: { Authorization: 'y', list: [{ api_key: 'z' }] } })).toEqual({

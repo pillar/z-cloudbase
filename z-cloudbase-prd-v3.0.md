@@ -654,6 +654,9 @@ OIDC 标准端点不使用此格式，按 RFC 6749 / OIDC 规范返回错误。`
 | 单对象上限 / 产品容量 | 默认 50 MB / 5 GB，可按产品配置 |
 | 认证限流 | 登录 / 注册：每 IP 10 次 / 分钟，每账号 5 次 / 分钟；连续失败触发 Turnstile。计数为 D1 固定窗口计数器（`auth_rate_counters`，键只存哈希），超限返回 429 + `Retry-After`（2026-10-09：Cloudflare Rate Limiting 绑定在 staging 实测按机器本地计数，55 次请求只拦 1 次，不能满足精确限额） |
 | 采集限流 | 每 publishable key 每分钟 600 个批次 |
+| 用户属性（v3.1，§21.7） | 每个用户每个产品环境 ≤ 20 个键、JSON ≤ 2 KB；键 `^[A-Za-z0-9_]{1,64}$`；字符串值 ≤ 256 字符 |
+| 分析保留期（v3.1，§21.8） | `ANALYTICS_RETENTION_DAYS` 默认 90（1–90）；漏斗 2–5 步、转化窗口 ≤ 30 天；留存 day ≤ 31 期、week ≤ 13 期；分组 ≤ 50 行；明细每页 ≤ 100 条；自定义维度 ≤ 3 个 |
+| 原始事件归档与导出（v3.1，§21.9） | `ARCHIVE_RETENTION_DAYS` 默认 90（1–3650）；单次导出 ≤ 31 天且 ≤ 2,000 个归档对象 |
 
 ### 19.7 账号绑定与冲突状态机
 
@@ -817,17 +820,103 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 - Server SDK 上报事件；用户属性（产品级，不跨产品共享）。
 - 设备与地域上下文尽量由服务端从请求派生，不信任客户端自报的身份字段。
 
-（待补充规格）
+**规格（2026-11-04）**
+
+Web SDK 新增采集项，全部默认关闭，在 `createClient({ autocapture: {...} })` 中逐项开启：
+
+| 选项 | 事件名 | 属性 | 隐私与限流 |
+|---|---|---|---|
+| `errors: true` | `js_error` | `message`（≤ 512 字符）、`type`（`error` / `unhandledrejection`）、`stack`（前 1000 字符）、`source`（脚本 URL，只保留 origin + path）、`line`、`col`、`path` | 与 `logs.captureError` 同一套脱敏：Bearer / JWT / 平台密钥替换为 `[REDACTED]`，消息与堆栈中所有 URL 去掉查询串和片段。同一页面加载内相同 `message + source + line` 只报一次；每次页面加载最多 10 条 |
+| `webVitals: true` | `web_vital` | `name`（`LCP` / `INP` / `CLS` / `FCP` / `TTFB`）、`value`（毫秒；CLS 为无单位分数）、`rating`（`good` / `needs-improvement` / `poor`，阈值同 web.dev）、`path` | 用浏览器原生 `PerformanceObserver` 实现，不引入依赖；每个指标每次页面加载只报一次，在页面隐藏（`visibilitychange` → hidden / `pagehide`）时上报。INP 取本页最差一次交互的时长（近似值，不是 web.dev 的 p98 算法）。浏览器不支持的指标不上报 |
+| `clicks: true` | `element_click` | `tag`、`selector`（`tag#id.class`，≤ 128 字符）、`text`（≤ 64 字符，只取链接 / 按钮 / 显式标注元素的可见文本）、`href`（链接的 origin + path）、`label`（`data-zcb-track` 的值） | 只采集交互元素（`a`、`button`、`[role=button]`、`input[type=button\|submit\|reset]`）和带 `data-zcb-track` 的元素；`clicks: 'attribute'` 时只采集带属性的元素。**从不读取输入框的值或文本**；祖先带 `data-zcb-no-track` 的元素不采集 |
+
+- `page_view` 的 `path` 与 `referrer`（v3.1 起）默认去掉查询串：`path` = pathname（`#/` 开头的 hash 路由保留 hash，同样去掉其中的查询串），`referrer` = origin + pathname。
+- **同意开关**：`analytics.optOut()` / `optIn()` / `hasOptedOut()`；初始值由 `analytics.consent: 'granted' | 'denied'`（默认 `granted`，与 v3.0 行为一致）决定，用户的选择按产品 + 环境保存在 `localStorage`（`zcb.{product}.{env}.consent`），优先于初始值。退出后：清空待发送队列、删除匿名 ID，`track` 与全部自动采集变成空操作，`setUserProperties` 以 `sdk_error` 拒绝。
+- **用户属性**（产品环境级，不跨产品共享）：
+  - Web：`analytics.setUserProperties(props)`（需已登录，用户由 access token 决定），`identify(props?)` 在附加 token 的同时可设置属性。Server：`analytics.setUserProperties(userId, props)`（服务密钥，需 `events:write`）。
+  - HTTP：`POST /v1/events/user-properties` `{ properties, user_id? }`。publishable key 必须带用户 token，且不得带 `user_id`（400 `validation_failed`）；服务密钥必须带 `user_id`，该用户在本产品必须有 `active` membership，否则 403 `membership_required`。成功返回 `{ properties }`（合并后的完整属性）。
+  - 语义：按 RFC 7396 合并（值为 `null` 删除该键）；值只允许标量；键 `^[A-Za-z0-9_]{1,64}$`；字符串值 ≤ 256 字符；合并后 ≤ 20 个键、JSON ≤ 2 KB，超出返回 413 `payload_too_large`（已有属性不变）。保存在 ingest D1 的 `user_properties`，以 `user_key`（§19.8 的 HMAC）为键，不保存原始 `user_id`。
+  - 匿名访客**不提供**属性（数据最小化）；需要时作为事件属性上报。
+- **Server SDK `analytics.track(name, props, { userId?, anonymousId?, eventId?, sessionId?, occurredAt? })`**（`trackServerEvent` 保留为同义方法）：
+  - 服务密钥（`events:write`）可以在事件中携带 `user_id`，只有本产品 `active` membership 的用户才被接受；其余事件按条拒绝（`membership_required`），同批合法事件照常接受。`user_id` 只在 api Worker 内转为 `user_key`，不进入队列、归档或分析存储。
+  - publishable key 的事件带 `user_id` 时按条拒绝（`user_id_not_allowed`）：浏览器只能通过自己的 token 归属用户。
+  - `anonymous_id` 由产品后端自行转发（例如前端的匿名 ID），平台不做校验，也不与其他产品关联。
+  - 批量与幂等：沿用 §19.6 的批次上限和 24 小时 `event_id` 去重；SDK 在排队时固定 `event_id`，重试不产生重复；调用方可传 `eventId`（UUID）实现端到端幂等。
+- **服务端派生上下文**（不读取请求体，客户端也无法覆盖）：
+  - publishable key 请求：从 `User-Agent` 解析 `browser`（chrome / edge / firefox / safari / opera / samsung / other / bot）、`os`（windows / macos / ios / android / linux / chromeos / other）、`device`（desktop / mobile / tablet / bot），不保存版本号与原始 UA；`country` 取 `request.cf.country`（ISO 3166-1 alpha-2，未知为空）。`source = client`。
+  - 服务密钥请求：`source = server`，上述四个字段为空（后端请求的 UA / IP 不代表终端用户）。
+  - `path` 维度取 `properties.path` 去掉查询串与片段后的前 256 字符。
+- 队列消息（v3.1）：api 把同一请求的已接受事件打包，每条消息 ≤ 25 个事件且 ≤ 100 KB（Queues 单条上限 128 KB）；events 消费者 `max_batch_size = 10`，保证每次调用最多 250 个事件，正好是 Analytics Engine 每次调用写入数据点的上限。consumer 同时接受 v3.0 的单事件消息（升级期间队列里的存量）。
 
 ### 21.8 数据分析：漏斗、留存、属性分组与筛选、事件明细
 
 - Analytics Engine 不支持按用户关联查询，漏斗和留存需要按用户的事件存储；存储设计必须考虑 Workers Free 套餐的 D1 容量（单库 500 MB）。
 - 所有查询按产品与环境隔离，跨产品访问返回 403/404 且不泄露信息。
 
-（待补充规格）
+**规格（2026-11-04）**
+
+存储（全部在 ingest D1，迁移 `database/ingest-migrations/0003`；不新增 Cloudflare 资源）：
+
+| 表 | 主键 / 索引 | 内容 | 用途 |
+|---|---|---|---|
+| `event_rows`（替代 `events_substitute`，WITHOUT ROWID） | PK `(product_env_id, event_id)`；索引 `(product_env_id, occurred_at)` | 每个事件一行：名称、`user_key`、`anonymous_id`、`session_id`、时间、`source / browser / os / device / country / path`、自定义维度 `dim1–dim3`、属性 JSON（> 1 KB 时不保存，标记 `properties_truncated`，原文在归档中） | 事件明细；consumer 幂等；本地 / 测试兼作 Analytics Engine 替身（§19.10） |
+| `actor_daily`（WITHOUT ROWID） | PK `(product_env_id, event_name, day, actor)`；索引 `(product_env_id, actor, day)` | 每个 actor 每天每个事件一行：`first_at`、`last_at`、`n`（次数）、当天首次发生时的维度 JSON | 漏斗、按事件的留存 |
+| `actors`（WITHOUT ROWID） | PK `(product_env_id, actor)` | `first_day`、`last_day` | 首次出现队列（cohort） |
+| `user_properties`（WITHOUT ROWID） | PK `(product_env_id, user_key)` | 属性 JSON、`updated_at` | §21.7 用户属性 |
+| `analytics_settings` | PK `product_env_id` | `dimensions`（自定义维度键，≤ 3 个） | 维度映射 |
+
+- `actor` = `user_key`（已登录事件），否则 `anon:` + `anonymous_id`；两者都没有的事件（例如不带用户的服务端事件）不进入 actor 表。**不做身份缝合**：同一设备登录前后是两个 actor（与 §4.5“匿名不自动关联”一致）。`day` = `occurred_at` 的 UTC 日序号。
+- consumer 写入：同一产品环境的事件在一次调用内合并为 3 条 `json_each` 批量语句（一个事务），先按 `event_id` 查已存在的行，只为新事件写 Analytics Engine 与 actor 表；重投递不重复计数。
+- **保留期**：部署变量 `ANALYTICS_RETENTION_DAYS`（默认 90，范围 1–90，api 与 consumer 都读取）。每日 cron（`0 3 * * *`）删除 `occurred_at` / `day` 早于保留期的 `event_rows`、`actor_daily`，以及 `last_day` 早于保留期的 `actors`；查询的时间范围被截到保留期内。`user_properties` 随用户删除或退出产品删除（见 §21.9）。
+- **自定义维度**：`PUT /v1/admin/products/:id/analytics/settings?env=` `{ dimensions: ["plan", "level"] }`（`product:write`，审计 `analytics.settings_updated`）；键为事件属性名 `^[A-Za-z0-9_]{1,64}$`，最多 3 个，按顺序映射到 `dim1–dim3` 与 AE `blob12–blob14`。只影响此后写入的事件。`GET` 同路径返回 `{ dimensions, retention_days }`（`analytics:read`）。
+- Analytics Engine 数据点（生产）：`index1 = product_env_id`；`blob1–5` 不变（product_id、env、event_name、user_key、anonymous_id）；`blob6 path`、`blob7 browser`、`blob8 os`、`blob9 device`、`blob10 country`、`blob11 source`、`blob12–14 dim1–3`；`double1 = 1`。
+
+接口（均在 `/v1/admin/products/:id/analytics/*`，`env` 为必填查询参数，产品与环境只取自路径和查询参数并经现有 RBAC 中间件校验：`analytics:read`，导出为 `analytics:export`；时间参数 `from` / `to` 为 UTC 日期，`to` 不含，默认最近 7 天，范围截到保留期）：
+
+| 端点 | 参数 | 返回 | 数据源 |
+|---|---|---|---|
+| `GET …/analytics/funnel` | `steps`（逗号分隔，2–5 个事件名，可重复）、`window`（转化窗口秒数，默认 86400，最大 30 天）、`filter`（`dim:value`，只作用于第一步）、`user_property`（`key:value`） | `{ steps: [{ event, actors, conversion }], window_s }`；`conversion` 相对第一步 | `actor_daily` |
+| `GET …/analytics/retention` | `granularity`（`day` / `week`，默认 `day`）、`periods`（day ≤ 31，week ≤ 13，默认 7 / 4）、`start_event`（可选）、`return_event`（可选）、`user_property` | `{ cohorts: [{ cohort, size, retained: [n0, n1, …] }] }` | `actors` / `actor_daily` |
+| `GET …/analytics/breakdown` | `by`（维度，必填）、`event`（可选）、`filter`（`dim:value`，最多 3 个，可重复）、`limit`（≤ 50，默认 20） | `{ rows: [{ value, events, users }], source }` | 生产：AE SQL；本地：`event_rows` |
+| `GET …/analytics/events` | `event`、`actor`、`filter`、`before`（游标）、`limit`（≤ 100，默认 50） | `{ events: [...], next_before, user_properties? }`（按 `actor` 筛选时附带该 actor 的用户属性） | `event_rows` |
+| `GET/PUT …/analytics/settings` | 见上 | | `analytics_settings` |
+| `GET …/analytics/export` | 见 §21.9 | | R2 归档 |
+
+- 维度（`by` / `filter`）：`event_name`、`path`、`browser`、`os`、`device`、`country`、`source`，以及已声明的 `prop:<key>`；未声明的键返回 400 `validation_failed`。
+- 漏斗语义：第一步 = 每个 actor 在范围内第一次发生第一步的时间 t1（若有 `filter`，则只计当天首次发生时维度匹配的那天）；第 k 步 = 不早于 t(k-1)（与上一步是同一事件时须晚于 t(k-1)）、且在 t1 + window 之内的第 k 步最早发生时间。actor 表只保存每天的首次与末次时间，所以若某步在同一天先于 t(k-1) 发生过、之后又发生，用当天末次时间判断（可能低估转化，不会高估）。
+- 留存语义：不带 `start_event` 时 cohort = actor 的首次出现日（`actors.first_day`，受保留期限制）；带 `start_event` 时 = 该事件在范围内第一次发生的那天。`retained[k]` = 第 k 个周期内发生过 `return_event`（缺省为任意事件）的 actor 数；周以 UTC 周一为起点。
+- `users`（breakdown）= 不同 `user_key` 数（已登录用户）；Analytics Engine 对非 index 字段的去重计数在采样时是近似值（官方 sampling 文档），生产结果标 `source: analytics_engine`。
+- 跨产品：每个新端点都在读数据前做 `authorize`，A 的管理员查询 B 返回 403，不存在的产品返回 404；SQL 一律带 `product_env_id` 条件。
+
+**容量与成本估算（Workers Free，访问时间 2026-11-04，上线前须基准验证）**
+
+| 限额（官方） | 数值 | 对本设计的影响 |
+|---|---|---|
+| D1 单库容量 / 每日写入行 / 每日读取行 | 500 MB / 100,000 行 / 5,000,000 行；写入带索引列时索引也计行（D1 Limits、D1 Pricing） | 每个事件在其生命周期内约写 10–12 行（去重表插入与清理约 6，`event_rows` 插入与清理约 4，actor 表摊销约 1–2）⇒ **约 8,000–10,000 事件 / 天**是 Free 的上限，这是本设计最紧的约束 |
+| D1 每次调用查询数 | 50（Free） | consumer 每个产品环境每次调用 3 条批量语句 + 1 条查重 |
+| Queues 操作 | 10,000 次 / 天，每 64 KB 写、读、删各计一次（Queues Pricing） | 每条消息 3 次操作；v3.0 每事件一条消息 ⇒ 约 3,300 事件 / 天，v3.1 打包后按平均每批 10 个事件约 33,000 事件 / 天 |
+| Analytics Engine | 每次调用 ≤ 250 个数据点；Free 每天 100,000 个数据点、10,000 次查询；保留 3 个月（AE Limits、AE Pricing） | consumer 每次调用 ≤ 250 个事件；控制台概览每次 4 条查询 |
+| R2 | Free 每月 10 GB、Class A 100 万次、Class B 1,000 万次；PutObject / ListObjects 为 A，GetObject 为 B，DeleteObject 免费（R2 Pricing） | 归档每次 consumer 调用每个产品环境每天 1 次 PUT；持续有流量时单个环境最多约 17,280 次 / 天（5 秒一批），产品较多时应把 `max_batch_timeout` 调大 |
+| Workers CPU | Free 每个 HTTP 请求 / Cron 10 ms（Workers Limits） | 导出与归档清理受限，见 §21.9 |
+
+D1 存储估算：`event_rows` 约 400 B / 事件（含索引，属性平均 100 B），`actor_daily` 约 220 B / 行，同一 actor 同一天同一事件平均重复 3 次时约 75 B / 事件，合计约 475 B / 事件 ⇒ 500 MB 约容纳 100 万个保留期内的事件，90 天保留约 1.1 万事件 / 天，与写入上限同一量级。超过时运营者应调小 `ANALYTICS_RETENTION_DAYS` 或升级 Workers Paid（D1 单库 10 GB）。1K DAU × 每人每天 8 个事件约 8,000 事件 / 天，接近 Free 上限；10K / 100K DAU 需要 Paid。
+
+来源（2026-11-04 访问）：https://developers.cloudflare.com/d1/platform/limits/ 、https://developers.cloudflare.com/d1/platform/pricing/ 、https://developers.cloudflare.com/queues/platform/limits/ 、https://developers.cloudflare.com/queues/platform/pricing/ 、https://developers.cloudflare.com/analytics/analytics-engine/limits/ 、https://developers.cloudflare.com/analytics/analytics-engine/pricing/ 、https://developers.cloudflare.com/analytics/analytics-engine/sampling/ 、https://developers.cloudflare.com/analytics/analytics-engine/sql-reference/statements/ （不支持 JOIN / UNION，所以漏斗与留存不能放在 AE 上）、https://developers.cloudflare.com/r2/pricing/ 、https://developers.cloudflare.com/workers/platform/limits/ 。行大小是按列宽估算的，未实测。
 
 ### 21.9 原始事件存档与导出
 
 - 原始事件按产品 / 环境 / 日期归档到 R2，控制台可导出 NDJSON / CSV。
 
-（待补充规格）
+**规格（2026-11-04）**
+
+- 布局：`ARCHIVE` 桶 `events/v2/{yyyy}/{mm}/{dd}/{product_id}/{env}/{batch_id}.ndjson.gz`，日期为 `occurred_at` 的 UTC 日期；日期在前，过期清理按天整段删除。gzip 压缩的 NDJSON，每行一个事件：`event_id`、`event_name`、`occurred_at`、`received_at`、`user_key`、`anonymous_id`、`session_id`、`schema_version`、`properties`（完整）、`context`（`source / browser / os / device / country`）。`batch_id` 由消息 ID 决定，重投递覆盖同一对象；分组变化时同一事件可能出现在两个对象里，导出按 `event_id` 在每天内去重（归档为至少一次）。
+- 只归档通过校验的事件（api 已校验，consumer 再次校验消息格式）；原始 `user_id` 不进入归档。
+- v3.0 的旧对象（`events/{product}/{env}/…/*.ndjson`，未压缩）不参与导出、也不被自动清理；运营者升级后可手动删除这些前缀。
+- **保留期**：部署变量 `ARCHIVE_RETENTION_DAYS`（默认 90，范围 1–3650）。每日 cron 删除 `events/v2/` 下早于保留期的日期分区（每次最多 7 个日期、每个日期最多 1,000 个对象；未删完的下次继续）。
+- **导出**：`GET /v1/admin/products/:id/analytics/export?env=&from=&to=&format=ndjson|csv`，`analytics:export` 权限：owner、本产品 `product_admin`，`product_developer` 只能导出 dev / staging；operator 不能导出原始事件。范围按 UTC 日期，`to` 不含，最多 31 天且在归档保留期内；先列出对象，超过 2,000 个返回 413 `payload_too_large`（请缩小范围）。响应为流式下载（`content-disposition: attachment`），NDJSON 即归档行；CSV 列为 `event_id,event_name,occurred_at,received_at,user_key,anonymous_id,session_id,source,browser,os,device,country,properties`，`properties` 为 JSON 字符串，以 `= + - @` 开头的单元格前加 `'` 防止公式注入。每次导出写审计 `analytics.exported`（范围、格式、对象数）。Workers Free 每个请求只有 10 ms CPU，只适合导出小范围（约数 MB）；大范围导出需要 Workers Paid。
+- **删除请求（§19.8）**：账号删除和退出产品在后台处理时，对涉及的每个产品环境计算该用户的 `user_key`，然后：
+  1. 立即删除 `user_properties`、`actor_daily`、`actors`、`event_rows` 中该 `user_key` 的数据；
+  2. 写入 `archive_suppressions(product_env_id, user_key, created_at)`；**此后每次导出都排除这些 `user_key` 的事件**（处理完成即生效）；
+  3. 归档文件不改写：带该 `user_key` 的事件在所在日期分区到达 `ARCHIVE_RETENTION_DAYS` 时随分区删除；抑制记录保留到同一期限后由 cron 删除。默认 90 天，与 §19.8“冷静期 + 最长 90 天”一致；运营者调大归档保留期时，物理删除期限随之延长，必须在隐私政策中写明。
+  4. Analytics Engine 中的数据点无法逐条删除，按 3 个月自然过期（§19.8 不变）。只带 `anonymous_id`、没有 `user_key` 的事件无法归属到账号，不在删除范围内。
+- 不改写归档分区的原因：一次删除可能要读改写数千个 gzip 对象，Workers Free 的 10 ms CPU 无法在 cron 中完成，且每次改写都产生 Class A 操作；导出时排除 + 到期删除可以在限额内兑现删除承诺。

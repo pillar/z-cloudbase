@@ -12,7 +12,10 @@
     "API_ORIGIN": "http://localhost:8788",
     "DEPLOY_ENV": "local",
     // Analytics Engine dataset the consumer writes (its EVENTS_AE binding); read via the AE SQL API.
-    "AE_DATASET": "z_cloudbase_events"
+    "AE_DATASET": "z_cloudbase_events",
+    // PRD §21.8 / §21.9 (same values as the consumer): query window and archive export range.
+    "ANALYTICS_RETENTION_DAYS": "90",
+    "ARCHIVE_RETENTION_DAYS": "90"
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "z-cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" },

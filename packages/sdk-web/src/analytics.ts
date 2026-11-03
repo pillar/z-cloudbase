@@ -19,7 +19,15 @@ export interface AnalyticsOptions {
   storage?: KeyValueStore;
   /** Persistent, rotating sessions that also emit `session_start` (see `autocapture.ts`). */
   session?: SessionTracker;
+  /**
+   * Initial consent when the visitor has not chosen yet (default `granted`). A stored `optOut()` / `optIn()`
+   * choice (per product and env, in `storage`) wins. While denied nothing is queued or sent (PRD §21.7).
+   */
+  consent?: 'granted' | 'denied';
 }
+
+/** Product-scoped user properties: scalar values, `null` removes a key (PRD §21.7). */
+export type UserProperties = Record<string, string | number | boolean | null>;
 
 type Scalar = string | number | boolean | null;
 
@@ -55,6 +63,7 @@ export function createAnalytics(
   const maxRetries = opts.maxRetries ?? 3;
   // Keyed per product and env so a shared origin never links one product's visitor to another's.
   const anonKey = `zcb.${config.productId}.${config.env}.anonymous_id`;
+  const consentKey = `zcb.${config.productId}.${config.env}.consent`;
 
   let queue: EventInput[] = [];
   let identified = false;
@@ -71,6 +80,40 @@ export function createAnalytics(
     } catch {
       return null;
     }
+  }
+
+  function storedConsent(): string | null {
+    try {
+      return store()?.getItem(consentKey) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const remembered = storedConsent();
+  let optedOut = remembered ? remembered === 'denied' : opts.consent === 'denied';
+  function remember(v: 'granted' | 'denied') {
+    try {
+      store()?.setItem(consentKey, v);
+    } catch {
+      // the choice lasts for this page load
+    }
+  }
+
+  function forgetAnonymousId() {
+    anonymousId = null;
+    try {
+      store()?.removeItem(anonKey);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function setUserProperties(properties: UserProperties): Promise<UserProperties> {
+    if (optedOut) throw new PlatformError('sdk_error', 'Analytics consent was withdrawn (optOut)');
+    const res = await http<{ properties: UserProperties }>('/events/user-properties', {
+      method: 'POST', body: { properties }, auth: 'required', retries: maxRetries,
+    });
+    return res.properties;
   }
 
   function getAnonymousId(): string {
@@ -178,7 +221,7 @@ export function createAnalytics(
     /** Queue an event. Never throws; invalid names/properties are dropped. */
     track(name: string, properties: Record<string, unknown> = {}): void {
       try {
-        if (!EVENT_NAME_RE.test(name)) return;
+        if (optedOut || !EVENT_NAME_RE.test(name)) return;
         const props = sanitizeProperties(properties);
         if (!props) return;
         const now = Date.now();
@@ -211,20 +254,38 @@ export function createAnalytics(
       }
     },
 
-    /** Attach the signed-in user's bearer token to batches. Does not (and cannot) choose a user id. */
-    identify(): void {
+    /**
+     * Attach the signed-in user's bearer token to batches. Does not (and cannot) choose a user id. With
+     * `properties`, also sets them for that user (fire-and-forget; use `setUserProperties` to await errors).
+     */
+    identify(properties?: UserProperties): void {
       identified = true;
+      if (properties) setUserProperties(properties).catch(() => {});
     },
+
+    /** Merge properties of the signed-in user in this product env; resolves with the merged set. Needs a session. */
+    setUserProperties,
+
+    /** Stop collecting: clears queued events and the anonymous id, and remembers the choice. */
+    optOut(): void {
+      optedOut = true;
+      remember('denied');
+      queue = [];
+      forgetAnonymousId();
+    },
+
+    /** Resume collecting and remember the choice. */
+    optIn(): void {
+      optedOut = false;
+      remember('granted');
+    },
+
+    hasOptedOut: (): boolean => optedOut,
 
     /** Forget the identity and start a new anonymous visitor and session. */
     reset(): void {
       identified = false;
-      anonymousId = null;
-      try {
-        store()?.removeItem(anonKey);
-      } catch {
-        // ignore
-      }
+      forgetAnonymousId();
       sessionId = crypto.randomUUID();
       opts.session?.reset();
     },

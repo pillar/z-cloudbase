@@ -8,6 +8,8 @@ export interface FakeQueue {
   bodies: any[];
   /** Number of sendBatch calls that were attempted. */
   calls: number;
+  /** Events of the accepted v3.1 event messages, flattened: one entry per event with its message's fields. */
+  readonly events: any[];
   sendBatch(msgs: Array<{ body: unknown }>): Promise<void>;
 }
 
@@ -16,6 +18,9 @@ export function fakeQueue(opts: { failOnCall?: number } = {}): FakeQueue {
   const q: FakeQueue = {
     bodies: [],
     calls: 0,
+    get events() {
+      return q.bodies.flatMap(({ events, ...m }) => (events as any[]).map((e) => ({ ...m, ...e })));
+    },
     async sendBatch(msgs) {
       q.calls++;
       if (q.calls === opts.failOnCall) throw new Error('queue down');

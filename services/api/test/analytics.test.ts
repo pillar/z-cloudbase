@@ -8,7 +8,7 @@ const at = (day: string, hour = 12) => Date.parse(`${day}T${String(hour).padStar
 let n = 0;
 const insert = (productEnvId: string, name: string, occurredAt: number, who: { user?: string; anon?: string }) =>
   env.INGEST_DB.prepare(
-    'INSERT INTO events_substitute (product_env_id, event_id, event_name, user_key, anonymous_id, occurred_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO event_rows (product_env_id, event_id, event_name, user_key, anonymous_id, occurred_at, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   ).bind(productEnvId, `e${n++}`, name, who.user ?? null, who.anon ?? null, occurredAt, occurredAt).run();
 
 describe('D1 substitute AnalyticsQuery', () => {

@@ -1,4 +1,5 @@
 import { systemAudit } from './audit.ts';
+import { eraseUserAnalytics } from './analytics-erasure.ts';
 import { identity } from './identity.ts';
 
 interface DeletionRequest {
@@ -33,14 +34,16 @@ async function deleteObjects(env: Env, r: DeletionRequest): Promise<number> {
   }
 }
 
-async function runDelete(env: Env, r: DeletionRequest): Promise<{ objects: number }> {
+async function runDelete(env: Env, r: DeletionRequest): Promise<{ objects: number; analytics_envs: number }> {
   if (r.scope === 'product') {
     // Leave product: the api already revoked the membership and that product's tokens, so no new
     // objects can appear. After cleanup the revoked row is removed, letting the user re-join an
     // open product later by signing in again (an admin revoke, by contrast, stays in place).
     const objects = await deleteObjects(env, r);
+    // Product analytics of the user go with the membership (PRD §21.9); the archive is suppressed for exports.
+    const analytics = await eraseUserAnalytics(env, r.user_id, r.product_id);
     await env.DB.prepare(`DELETE FROM product_memberships WHERE user_id = ? AND product_id = ? AND status = 'revoked'`).bind(r.user_id, r.product_id).run();
-    return { objects };
+    return { objects, analytics_envs: analytics.length };
   }
   // Account (PRD §19.8): first stop all access — revoke sessions/tokens, then drop memberships
   // (the api rejects any token without an active membership) — so nothing new can be written
@@ -49,8 +52,9 @@ async function runDelete(env: Env, r: DeletionRequest): Promise<{ objects: numbe
   await env.DB.prepare('DELETE FROM product_memberships WHERE user_id = ?').bind(r.user_id).run();
   const objects = await deleteObjects(env, r);
   await deleteExports(env, r.user_id);
+  const analytics = await eraseUserAnalytics(env, r.user_id, null);
   await identity(env).deleteUserIdentity({ userId: r.user_id, reason: `deletion_request:${r.id}` });
-  return { objects };
+  return { objects, analytics_envs: analytics.length };
 }
 
 /** Previous data exports hold the user's email and name; they go with the account. */
@@ -107,7 +111,7 @@ export async function processDueRequests(env: Env, now = Date.now(), limit = 20)
       await env.DB.batch([
         env.DB.prepare(`UPDATE deletion_requests SET status = 'completed', completed_at = ?, result_ref = ? WHERE id = ?`)
           .bind(Date.now(), 'ref' in out ? out.ref : null, r.id),
-        systemAudit(env.DB, { ...audit, action: `${r.kind}.completed`, metadata: { request_id: r.id, scope: r.scope, ...('objects' in out ? { objects_deleted: out.objects } : {}) } }),
+        systemAudit(env.DB, { ...audit, action: `${r.kind}.completed`, metadata: { request_id: r.id, scope: r.scope, ...('objects' in out ? { objects_deleted: out.objects, analytics_envs_erased: out.analytics_envs } : {}) } }),
       ]);
       completed++;
     } catch (err) {

@@ -1,14 +1,24 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import type { Environment } from '@z-cloudbase/contracts';
-import { Badge } from '@/components/ui/badge';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
 import { EmptyState, EnvSelect, Field, ErrorBanner, Loading, Section, useLoad } from '../ui.tsx';
 import type { AnalyticsSummary } from '../types.ts';
 import type { TabProps } from './ProductDetail.tsx';
+import { SourceNote, type AnalyticsTabProps } from './analytics/shared.tsx';
+
+// Each tab beyond Overview is its own chunk, loaded when first opened.
+const lazyTab = <K extends string>(load: () => Promise<Record<K, ComponentType<AnalyticsTabProps>>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
+const Funnels = lazyTab(() => import('./analytics/Funnels.tsx'), 'Funnels');
+const Retention = lazyTab(() => import('./analytics/Retention.tsx'), 'Retention');
+const Breakdown = lazyTab(() => import('./analytics/Breakdown.tsx'), 'Breakdown');
+const Events = lazyTab(() => import('./analytics/Events.tsx'), 'Events');
+const Export = lazyTab(() => import('./analytics/Export.tsx'), 'Export');
 
 const messages = defineMessages({
   zh: {
@@ -18,9 +28,6 @@ const messages = defineMessages({
     latestUsers: '最近一天活跃用户',
     peakUsers: '单日活跃用户峰值',
     latestAnonymous: '最近一天匿名用户',
-    sourceLabel: '数据源',
-    sourceAnalyticsEngine: 'Analytics Engine',
-    sourceSubstitute: '本地替身（非 Analytics Engine）',
     trendTitle: '每日趋势',
     trendDescription: '按 UTC 日期统计的活跃用户与事件数。',
     users: '用户',
@@ -32,6 +39,13 @@ const messages = defineMessages({
     topDescription: '按触发次数排序。',
     noData: '所选时间范围内没有数据',
     noTop: '没有事件记录',
+    tab_overview: '概览',
+    tab_funnels: '漏斗',
+    tab_retention: '留存',
+    tab_breakdown: '分组',
+    tab_events: '事件明细',
+    tab_export: '导出',
+    rangeHint: '日期按 UTC；留空时默认最近 7 天，并截到保留期内。',
   },
   en: {
     from: 'From',
@@ -40,9 +54,6 @@ const messages = defineMessages({
     latestUsers: 'Users, latest day',
     peakUsers: 'Peak daily users',
     latestAnonymous: 'Anonymous, latest day',
-    sourceLabel: 'Source',
-    sourceAnalyticsEngine: 'Analytics Engine',
-    sourceSubstitute: 'local substitute, not Analytics Engine',
     trendTitle: 'Daily trend',
     trendDescription: 'Active users and events per UTC day.',
     users: 'Users',
@@ -54,6 +65,13 @@ const messages = defineMessages({
     topDescription: 'Ranked by number of occurrences.',
     noData: 'No data in the selected range',
     noTop: 'No events recorded',
+    tab_overview: 'Overview',
+    tab_funnels: 'Funnels',
+    tab_retention: 'Retention',
+    tab_breakdown: 'Breakdown',
+    tab_events: 'Events',
+    tab_export: 'Export',
+    rangeHint: 'UTC dates; empty means the last 7 days, clamped to the retention window.',
   },
 });
 
@@ -67,12 +85,62 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
+const TABS = ['overview', 'funnels', 'retention', 'breakdown', 'events', 'export'] as const;
+type TabId = (typeof TABS)[number];
+
 export function Analytics({ product }: TabProps) {
   const t = useT(messages);
-  const f = useFormat();
   const [env, setEnv] = useState<Environment>('prod');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [tab, setTab] = useState<TabId>('overview');
+  // Tabs stay mounted once opened so their inputs survive switching; each loads its chunk on first open.
+  const [opened, setOpened] = useState<ReadonlySet<TabId>>(new Set(['overview']));
+  const p: AnalyticsTabProps = { product, env, from, to };
+  const views: Record<TabId, ReactNode> = {
+    overview: <Overview {...p} />,
+    funnels: <Funnels {...p} />,
+    retention: <Retention {...p} />,
+    breakdown: <Breakdown {...p} />,
+    events: <Events {...p} />,
+    export: <Export {...p} />,
+  };
+  const open = (v: string) => {
+    setTab(v as TabId);
+    setOpened((s) => new Set(s).add(v as TabId));
+  };
+
+  return (
+    <>
+      <div className="flex flex-wrap items-end gap-3">
+        <EnvSelect labelled value={env} onChange={setEnv} />
+        <Field label={t.from} htmlFor="an-from">
+          <Input id="an-from" type="date" className="w-40" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label={t.to} htmlFor="an-to">
+          <Input id="an-to" type="date" className="w-40" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Field>
+        <p className="text-muted-foreground pb-2 text-xs">{t.rangeHint}</p>
+      </div>
+      <Tabs value={tab} onValueChange={open} className="gap-6">
+        <div className="overflow-x-auto">
+          <TabsList>
+            {TABS.map((id) => <TabsTrigger key={id} value={id}>{t[`tab_${id}`]}</TabsTrigger>)}
+          </TabsList>
+        </div>
+        {TABS.filter((id) => opened.has(id)).map((id) => (
+          <TabsContent key={id} value={id} forceMount className="space-y-6 data-[state=inactive]:hidden">
+            <Suspense fallback={<Loading loading rows={4} />}>{views[id]}</Suspense>
+          </TabsContent>
+        ))}
+      </Tabs>
+    </>
+  );
+}
+
+function Overview({ product, env, from, to }: AnalyticsTabProps) {
+  const t = useT(messages);
+  const f = useFormat();
   const q = useLoad(
     (a) => a.get<AnalyticsSummary>(`/products/${product.id}/analytics`, { env, from, to }),
     `${product.id}|${env}|${from}|${to}`,
@@ -89,15 +157,6 @@ export function Analytics({ product }: TabProps) {
 
   return (
     <>
-      <div className="flex flex-wrap items-end gap-3">
-        <EnvSelect labelled value={env} onChange={setEnv} />
-        <Field label={t.from} htmlFor="an-from">
-          <Input id="an-from" type="date" className="w-40" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </Field>
-        <Field label={t.to} htmlFor="an-to">
-          <Input id="an-to" type="date" className="w-40" value={to} onChange={(e) => setTo(e.target.value)} />
-        </Field>
-      </div>
       <ErrorBanner message={q.error} />
       <Loading loading={q.loading} rows={4} />
       {q.data && (
@@ -108,11 +167,7 @@ export function Analytics({ product }: TabProps) {
             <Stat label={t.peakUsers} value={peak ? f.number(peak.users) : '–'} hint={peak?.day} />
             <Stat label={t.latestAnonymous} value={latest ? f.number(latest.anonymous) : '–'} hint={latest?.day} />
           </div>
-          <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-            {t.sourceLabel}
-            <Badge variant="outline" className="font-mono font-normal">{q.data.source}</Badge>
-            {q.data.source === 'd1_substitute' ? t.sourceSubstitute : t.sourceAnalyticsEngine}
-          </p>
+          <SourceNote source={q.data.source} />
 
           <Section title={t.trendTitle} description={t.trendDescription}>
             {daily.length === 0 ? (

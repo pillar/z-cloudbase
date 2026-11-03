@@ -1,5 +1,6 @@
 import { queueRole } from './archive.ts';
-import { DAILY_CRON, purgeExpired, pruneSubstitute, reapStalePendingUploads, reclaimAnonymous } from './cron.ts';
+import { expireArchive, pruneAnalytics } from './analytics-retention.ts';
+import { DAILY_CRON, purgeExpired, reapStalePendingUploads, reclaimAnonymous } from './cron.ts';
 import { processDueRequests } from './deletion.ts';
 import { handleDlq } from './dlq.ts';
 import { handleEvents } from './events.ts';
@@ -31,7 +32,7 @@ export default {
       ['purge', () => purgeExpired(env)],
       ['reap_pending_uploads', () => reapStalePendingUploads(env)],
     ];
-    if (controller.cron === DAILY_CRON) jobs.push(['reclaim_anonymous', () => reclaimAnonymous(env)], ['prune_substitute', () => pruneSubstitute(env)]);
+    if (controller.cron === DAILY_CRON) jobs.push(['reclaim_anonymous', () => reclaimAnonymous(env)], ['prune_analytics', () => pruneAnalytics(env)], ['expire_archive', () => expireArchive(env)]);
     jobs.push(['deletion_pipeline', () => processDueRequests(env)]);
     for (const [name, job] of jobs) {
       try {

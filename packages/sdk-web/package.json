@@ -22,7 +22,7 @@
     "@z-cloudbase/contracts": "workspace:*",
     "vitest": "^4.1.0"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "description": "Web SDK: sign-in (SSO, guest), storage, analytics, browser error logs.",
   "files": [

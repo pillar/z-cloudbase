@@ -25,13 +25,16 @@ beforeAll(async () => {
 describe('accepting events', () => {
   it('derives product/env from the key and ignores identity fields in the body', async () => {
     const q = fakeQueue();
-    const e = ev({ product_id: 'ev_b', environment: 'dev', user_id: 'usr_forged' });
-    const res = await send(a.publishableKey, [e], q);
+    const e = ev({ product_id: 'ev_b', environment: 'dev' });
+    // A browser cannot name a user (PRD §21.7): that event is rejected, the rest of the batch is kept.
+    const forged = ev({ user_id: 'usr_forged' });
+    const res = await send(a.publishableKey, [e, forged], q);
     expect(res.status).toBe(202);
-    expect(await res.json()).toEqual({ accepted: 1, duplicate: 0, rejected: [] });
-    expect(q.bodies).toHaveLength(1);
-    expect(q.bodies[0]).toMatchObject({ product_id: 'ev_a', environment: 'prod', user_key: null, event: { event_id: e.event_id, event_name: 'page_view', anonymous_id: 'anon-1' } });
+    expect(await res.json()).toEqual({ accepted: 1, duplicate: 0, rejected: [{ index: 1, code: 'user_id_not_allowed', message: expect.any(String) }] });
+    expect(q.events).toHaveLength(1);
+    expect(q.events[0]).toMatchObject({ v: 2, product_id: 'ev_a', environment: 'prod', user_key: null, event: { event_id: e.event_id, event_name: 'page_view', anonymous_id: 'anon-1' } });
     expect(JSON.stringify(q.bodies)).not.toContain('usr_forged');
+    expect(JSON.stringify(q.bodies)).not.toContain('ev_b');
   });
 
   it('pseudonymises a verified user as HMAC(user_id, product salt); the raw user_id never reaches the queue', async () => {
@@ -39,15 +42,15 @@ describe('accepting events', () => {
     const u = await userFor(a);
     const res = await send(a.publishableKey, [ev()], q, { Authorization: `Bearer ${u.token}` });
     expect(res.status).toBe(202);
-    expect(q.bodies[0].user_key).toBe(await userKey(u.userId, a.salt));
-    expect(JSON.stringify(q.bodies)).not.toContain(u.userId);
+    expect(q.events[0].user_key).toBe(await userKey(u.userId, a.salt));
+    expect(JSON.stringify(q.events)).not.toContain(u.userId);
   });
 
   it('accepts service keys with events:write', async () => {
     const key = await seedServiceKey(a.productEnvId, ['events:write']);
     const q = fakeQueue();
     expect((await send(key, [ev()], q)).status).toBe(202);
-    expect(q.bodies[0]).toMatchObject({ product_id: 'ev_a', user_key: null });
+    expect(q.events[0]).toMatchObject({ product_id: 'ev_a', user_key: null });
   });
 });
 
@@ -85,7 +88,7 @@ describe('credentials and isolation', () => {
     const q = fakeQueue();
     expect(await json(await send(a.publishableKey, [e], q))).toMatchObject({ accepted: 1, duplicate: 0 });
     expect(await json(await send(b.publishableKey, [e], q))).toMatchObject({ accepted: 1, duplicate: 0 });
-    expect(q.bodies.map((m) => m.product_id)).toEqual(['ev_a', 'ev_b']);
+    expect(q.events.map((m) => m.product_id)).toEqual(['ev_a', 'ev_b']);
   });
 });
 
@@ -112,7 +115,7 @@ describe('validation and limits', () => {
       [1, 'validation_failed'], [2, 'occurred_at_out_of_range'], [3, 'occurred_at_out_of_range'],
       [4, 'validation_failed'], [5, 'payload_too_large'], [6, 'validation_failed'], [7, 'validation_failed'],
     ]);
-    expect(q.bodies).toHaveLength(2);
+    expect(q.events).toHaveLength(2);
   });
 
   it('rejects oversized batches (413) and malformed bodies (400) without side effects', async () => {
@@ -147,7 +150,7 @@ describe('deduplication (24h window)', () => {
     const e = ev();
     expect(await json(await send(a.publishableKey, [e, e, ev()], q))).toMatchObject({ accepted: 2, duplicate: 1 });
     expect(await json(await send(a.publishableKey, [e], q))).toMatchObject({ accepted: 0, duplicate: 1 });
-    expect(q.bodies.filter((m) => m.event.event_id === e.event_id)).toHaveLength(1);
+    expect(q.events.filter((m) => m.event.event_id === e.event_id)).toHaveLength(1);
   });
 
   it('takes over an expired dedupe row but not a live one', async () => {
@@ -165,11 +168,11 @@ describe('deduplication (24h window)', () => {
     const res = await send(a.publishableKey, events, failing);
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: { code: 'unavailable', retryable: true } });
-    expect(failing.bodies).toHaveLength(0);
+    expect(failing.events).toHaveLength(0);
 
     const healthy = fakeQueue();
     expect(await json(await send(a.publishableKey, events, healthy))).toMatchObject({ accepted: 2, duplicate: 0 });
-    expect(healthy.bodies).toHaveLength(2);
+    expect(healthy.events).toHaveLength(2);
   });
 
   it('on a partial enqueue failure keeps claims only for events that were enqueued', async () => {
@@ -178,14 +181,14 @@ describe('deduplication (24h window)', () => {
     const events = Array.from({ length: 30 }, () => ev({ properties: props }));
     const q = fakeQueue({ failOnCall: 2 });
     expect((await send(a.publishableKey, events, q)).status).toBe(503);
-    expect(q.bodies.length).toBeGreaterThan(0);
-    expect(q.bodies.length).toBeLessThan(30);
+    expect(q.events.length).toBeGreaterThan(0);
+    expect(q.events.length).toBeLessThan(30);
 
     const retry = fakeQueue();
     const body = await json(await send(a.publishableKey, events, retry));
-    expect(body.duplicate).toBe(q.bodies.length);
-    expect(body.accepted).toBe(30 - q.bodies.length);
-    const ids = [...q.bodies, ...retry.bodies].map((m) => m.event.event_id);
+    expect(body.duplicate).toBe(q.events.length);
+    expect(body.accepted).toBe(30 - q.events.length);
+    const ids = [...q.events, ...retry.events].map((m) => m.event.event_id);
     expect(new Set(ids).size).toBe(30);
   });
 });
@@ -215,7 +218,7 @@ describe('event registry', () => {
     const rejecting = await json(await send(prod.publishableKey, [ev({ event_name: 'known' }), ev({ event_name: 'mystery' })], q));
     expect(rejecting.accepted).toBe(1);
     expect(rejecting.rejected).toEqual([{ index: 1, code: 'unknown_event', message: expect.any(String) }]);
-    expect(q.bodies.map((m) => m.event.event_name)).toEqual(['known']);
+    expect(q.events.map((m) => m.event.event_name)).toEqual(['known']);
   });
 
   it("does not see another product's registered events", async () => {

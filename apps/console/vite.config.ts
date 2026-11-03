@@ -12,7 +12,7 @@ export default defineConfig({
   server: { port: 5173 },
   // Section pages are lazy chunks: scan them at startup so the dev server pre-bundles their dependencies
   // up front instead of reloading the page the first time one is opened.
-  optimizeDeps: { entries: ['index.html', 'src/pages/*.tsx'] },
+  optimizeDeps: { entries: ['index.html', 'src/pages/*.tsx', 'src/pages/analytics/*.tsx'] },
   // Pure-logic tests (PKCE, OIDC helpers, API client) run in Node; no DOM needed.
   test: { environment: 'node', include: ['test/**/*.test.ts'] },
 });

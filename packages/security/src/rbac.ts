@@ -13,6 +13,7 @@ export type Action =
   | 'storage:read_meta'    // object metadata and usage, never file content
   | 'logs:read'
   | 'analytics:read'
+  | 'analytics:export'     // raw event export (PRD §21.9); developers only outside prod, operators never
   | 'audit:read';
 
 export interface Grant {
@@ -31,10 +32,10 @@ const OPERATOR_ACTIONS: ReadonlySet<Action> = new Set([
 ]);
 const PRODUCT_ADMIN_ACTIONS: ReadonlySet<Action> = new Set([
   'product:read', 'product:write', 'keys:manage', 'team:manage', 'users:read', 'users:manage',
-  'storage:read_meta', 'logs:read', 'analytics:read', 'audit:read',
+  'storage:read_meta', 'logs:read', 'analytics:read', 'analytics:export', 'audit:read',
 ]);
 const DEVELOPER_ACTIONS: ReadonlySet<Action> = new Set([
-  'product:read', 'keys:manage', 'storage:read_meta', 'logs:read', 'analytics:read',
+  'product:read', 'keys:manage', 'storage:read_meta', 'logs:read', 'analytics:read', 'analytics:export',
 ]);
 
 function grantAllows(g: Grant, action: Action, target: Target): boolean {
@@ -48,7 +49,7 @@ function grantAllows(g: Grant, action: Action, target: Target): boolean {
     case 'product_developer':
       if (target.productId === undefined || g.productId !== target.productId || !DEVELOPER_ACTIONS.has(action)) return false;
       // Developers never touch production secrets (PRD §2).
-      if (action === 'keys:manage') return target.env !== undefined && target.env !== 'prod';
+      if (action === 'keys:manage' || action === 'analytics:export') return target.env !== undefined && target.env !== 'prod';
       return true;
   }
 }
