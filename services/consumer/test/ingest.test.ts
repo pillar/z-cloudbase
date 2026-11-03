@@ -12,6 +12,8 @@ const at = (hh: string) => `${DAY}T${hh}:00Z`;
 const day = { from: DAY, to: '2026-06-03' };
 const listKeys = async (prefix: string) => (await baseEnv.ARCHIVE.list({ prefix })).objects.map((o) => o.key);
 const ndjson = async (key: string) => (await (await baseEnv.ARCHIVE.get(key))!.text()).trim().split('\n').map((l) => JSON.parse(l));
+const gzNdjson = async (key: string) =>
+  (await new Response((await baseEnv.ARCHIVE.get(key))!.body.pipeThrough(new DecompressionStream('gzip'))).text()).trim().split('\n').map((l) => JSON.parse(l));
 const indexRows = async (productEnvId: string) =>
   (await baseEnv.INGEST_DB.prepare('SELECT request_id, level, archive_key FROM log_index WHERE product_env_id = ? ORDER BY request_id').bind(productEnvId).all<{ request_id: string; level: string; archive_key: string }>()).results;
 
@@ -87,12 +89,19 @@ describe('events consumer', () => {
     const m = eventMessage('ec_a', 'prod', { event_name: 'signup', anonymous_id: 'dev-1', user_key: 'uk_1', occurred_at: at('10:00'), received: at('10:01') });
     const r = await deliver('z-cloudbase-events', [m], { ...baseEnv, EVENTS_AE: ae });
     expect(r.acked).toHaveLength(1);
-    expect(ae.points).toEqual([{ indexes: ['ec_a.prod'], blobs: ['ec_a', 'prod', 'signup', 'uk_1', 'dev-1'], doubles: [1] }]);
-    const keys = await listKeys('events/ec_a/prod/2026/06/02/');
+    expect(ae.points).toEqual([{
+      indexes: ['ec_a.prod'], blobs: ['ec_a', 'prod', 'signup', 'uk_1', 'dev-1', '', 'chrome', 'macos', 'desktop', 'DE', 'client', '', '', ''], doubles: [1],
+    }]);
+    const keys = await listKeys('events/v2/2026/06/02/ec_a/prod/');
     expect(keys).toHaveLength(1);
-    expect(await ndjson(keys[0]!)).toEqual([m]);
-    const row = await baseEnv.INGEST_DB.prepare('SELECT * FROM events_substitute WHERE product_env_id = ?').bind('ec_a.prod').first();
-    expect(row).toMatchObject({ event_id: m.event.event_id, event_name: 'signup', user_key: 'uk_1', anonymous_id: 'dev-1', occurred_at: Date.parse(at('10:00')) });
+    expect(keys[0]).toMatch(/\/[0-9a-f]{32}\.ndjson\.gz$/);
+    const ev = m.events[0]!.event;
+    expect(await gzNdjson(keys[0]!)).toEqual([{
+      event_id: ev.event_id, event_name: 'signup', occurred_at: at('10:00'), received_at: at('10:01'), user_key: 'uk_1', anonymous_id: 'dev-1',
+      session_id: null, schema_version: 1, properties: {}, context: m.context,
+    }]);
+    const row = await baseEnv.INGEST_DB.prepare('SELECT * FROM event_rows WHERE product_env_id = ?').bind('ec_a.prod').first();
+    expect(row).toMatchObject({ event_id: ev.event_id, event_name: 'signup', user_key: 'uk_1', anonymous_id: 'dev-1', occurred_at: Date.parse(at('10:00')), browser: 'chrome', country: 'DE' });
   });
 
   it('shows an event in the summary of its own product and not of another', async () => {

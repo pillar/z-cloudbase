@@ -50,6 +50,23 @@ describe('analytics.trackServerEvent', () => {
     expect(() => server.analytics.trackServerEvent('ok_name', big)).toThrow(expect.objectContaining({ code: 'validation_failed' }));
   });
 
+  it('track() attributes an event to a member with userId (the API checks membership)', async () => {
+    const { api, server } = setup();
+    server.analytics.track('order_shipped', { items: 2 }, { userId: 'usr_123', eventId: '0b0f6a6e-7d0c-4f5c-9a77-0d6d6a1b2c3e' });
+    await server.flush();
+    const [e] = eventsOf(api.calls[0]!);
+    expect(EventInput.safeParse(e).success).toBe(true);
+    expect(e).toMatchObject({ event_name: 'order_shipped', user_id: 'usr_123', event_id: '0b0f6a6e-7d0c-4f5c-9a77-0d6d6a1b2c3e' });
+  });
+
+  it('setUserProperties posts user_id + properties and surfaces API errors', async () => {
+    const { api, server } = setup((r) => (r.json().user_id === 'usr_ok' ? json({ properties: { plan: 'pro' } }) : apiError('membership_required', 403)));
+    expect(await server.analytics.setUserProperties('usr_ok', { plan: 'pro' })).toEqual({ plan: 'pro' });
+    expect(api.calls[0]!.url).toBe('http://api.test/v1/events/user-properties');
+    expect(api.calls[0]!.json()).toEqual({ user_id: 'usr_ok', properties: { plan: 'pro' } });
+    await expect(server.analytics.setUserProperties('usr_other', { plan: 'x' })).rejects.toMatchObject({ code: 'membership_required' });
+  });
+
   it('batches at most EVENTS_MAX_PER_BATCH events per request', async () => {
     const { api, server } = setup();
     for (let i = 0; i < 230; i++) server.analytics.trackServerEvent('tick', { i });

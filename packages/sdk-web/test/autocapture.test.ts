@@ -67,18 +67,21 @@ describe('page views', () => {
     cb.dispose();
   });
 
-  it('emits on pushState, replaceState, popstate and hashchange; referrer is the previous page', async () => {
+  it('emits on pushState, replaceState, popstate and hashchange; referrer is the previous page; query strings are dropped', async () => {
     const { cb, sent } = setup({ pageViews: true });
-    hist.pushState(null, '', '/a?x=1');
+    hist.pushState(null, '', '/a?token=secret');
     hist.replaceState(null, '', '/b');
     nav('/c');
     win.dispatchEvent(new Event('popstate'));
-    nav('/c#sec');
+    nav('/c#sec'); // a plain fragment is not a new page
+    win.dispatchEvent(new Event('hashchange'));
+    nav('/c#/settings?tab=2'); // a hash route is
     win.dispatchEvent(new Event('hashchange'));
     const evs = await sent();
-    expect(evs.map((e) => e.properties.path)).toEqual(['/home', '/a?x=1', '/b', '/c', '/c#sec']);
+    expect(evs.map((e) => e.properties.path)).toEqual(['/home', '/a', '/b', '/c', '/c#/settings']);
     expect(evs[1].properties.referrer).toBe('https://app.test/home');
-    expect(evs[2].properties.referrer).toBe('https://app.test/a?x=1');
+    expect(evs[2].properties.referrer).toBe('https://app.test/a');
+    expect(JSON.stringify(evs)).not.toContain('secret');
     cb.dispose();
   });
 

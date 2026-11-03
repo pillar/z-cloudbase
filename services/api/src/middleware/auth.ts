@@ -94,11 +94,29 @@ export function withUser(opts: { required: boolean }): MiddlewareHandler<AppEnv>
       audience: productAudience(cred.productEnvId),
       jwks: jwksResolver(c.env),
     });
-    const m = await c.env.DB.prepare('SELECT status FROM product_memberships WHERE user_id = ? AND product_id = ?')
-      .bind(claims.sub, cred.productId)
-      .first<{ status: string }>();
+    const m = await c.env.DB.prepare(
+      `SELECT m.status, EXISTS (SELECT 1 FROM "user" u WHERE u.id = m.user_id AND u.banned = 1 AND (u.banExpires IS NULL OR u.banExpires > ?)) AS banned
+       FROM product_memberships m WHERE m.user_id = ? AND m.product_id = ?`,
+    )
+      .bind(new Date().toISOString(), claims.sub, cred.productId)
+      .first<{ status: string; banned: number }>();
+    // A platform-wide ban stops access tokens issued before it (PRD §21.5.1).
+    if (m?.banned) throw new ApiError('user_banned', 'This account is banned');
     if (!m || m.status !== 'active') throw new ApiError('membership_required', 'No active membership for this product');
-    c.set('user', { userId: claims.sub, anon: claims.anon, sessionId: claims.sid });
+    c.set('user', { userId: claims.sub, anon: claims.anon, sessionId: claims.sid, ...(claims.act ? { actor: claims.act.sub } : {}) });
+    await next();
+  };
+}
+
+/**
+ * Refuse a product access token issued during a support impersonation (`act` claim, PRD §21.5.2) on
+ * actions that only the user may take: leaving the product, deleting their data. Must run after `withUser`.
+ */
+export function denyImpersonation(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('user')?.actor) {
+      throw new ApiError('impersonation_restricted', 'Not available during a support session (impersonation)');
+    }
     await next();
   };
 }

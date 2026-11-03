@@ -1,6 +1,8 @@
 // Analytics read interface used by admin routes (owned by the ingest/consumer module).
 // Production: Workers Analytics Engine SQL API. Local/test: D1 substitute (PRD §19.10).
-import { ANALYTICS_QUERY_WINDOW_DAYS, parseClientId } from '@z-cloudbase/contracts';
+import { ANALYTICS_QUERY_WINDOW_DAYS, parseClientId, type BreakdownResult } from '@z-cloudbase/contracts';
+import { aeLiteralSafe, aeString, type Filter, type ResolvedDimension } from './dimensions.ts';
+import { DAY_MS as DAY } from './range.ts';
 
 export interface AnalyticsSummary {
   /** One row per UTC day in [from, to). `users` = distinct user_key, `anonymous` = distinct anonymous_id without user_key. */
@@ -11,9 +13,22 @@ export interface AnalyticsSummary {
   source: 'analytics_engine' | 'd1_substitute';
 }
 
+export interface BreakdownInput {
+  productEnvId: string;
+  /** UTC day numbers, [fromDay, toDay); already clamped by the caller. */
+  fromDay: number;
+  toDay: number;
+  by: ResolvedDimension;
+  event?: string | undefined;
+  filters: Filter[];
+  limit: number;
+}
+
 export interface AnalyticsQuery {
   /** `from`/`to` are ISO dates; range is clamped to ANALYTICS_QUERY_WINDOW_DAYS. */
   summary(input: { productEnvId: string; from: string; to: string }): Promise<AnalyticsSummary>;
+  /** Events and distinct signed-in users per value of one dimension (PRD §21.8). */
+  breakdown(input: BreakdownInput): Promise<BreakdownResult>;
 }
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -33,7 +48,7 @@ function resolveRange(from: string, to: string): { fromMs: number; toMs: number;
   return { fromMs, toMs, days };
 }
 
-/** Local / test implementation over the `events_substitute` table filled by the consumer. */
+/** Local / test implementation over the `event_rows` table filled by the consumer. */
 export function d1AnalyticsQuery(db: D1Database): AnalyticsQuery {
   return {
     async summary({ productEnvId, from, to }) {
@@ -43,10 +58,10 @@ export function d1AnalyticsQuery(db: D1Database): AnalyticsQuery {
           `SELECT strftime('%Y-%m-%d', occurred_at / 1000, 'unixepoch') AS day, COUNT(*) AS events,
                   COUNT(DISTINCT user_key) AS users,
                   COUNT(DISTINCT CASE WHEN user_key IS NULL THEN anonymous_id END) AS anonymous
-           FROM events_substitute WHERE product_env_id = ? AND occurred_at >= ? AND occurred_at < ? GROUP BY day`,
+           FROM event_rows WHERE product_env_id = ? AND occurred_at >= ? AND occurred_at < ? GROUP BY day`,
         ).bind(productEnvId, fromMs, toMs),
         db.prepare(
-          `SELECT event_name AS name, COUNT(*) AS count FROM events_substitute
+          `SELECT event_name AS name, COUNT(*) AS count FROM event_rows
            WHERE product_env_id = ? AND occurred_at >= ? AND occurred_at < ? GROUP BY event_name ORDER BY count DESC, name LIMIT ?`,
         ).bind(productEnvId, fromMs, toMs, TOP_EVENTS),
       ]);
@@ -62,6 +77,17 @@ export function d1AnalyticsQuery(db: D1Database): AnalyticsQuery {
         source: 'd1_substitute',
       };
     },
+    async breakdown(q) {
+      const where = ['product_env_id = ?', 'occurred_at >= ?', 'occurred_at < ?'];
+      const binds: unknown[] = [q.productEnvId, q.fromDay * DAY, q.toDay * DAY];
+      if (q.event) (where.push('event_name = ?'), binds.push(q.event));
+      for (const f of q.filters) (where.push(`${f.dim.column} = ?`), binds.push(f.value));
+      const { results } = await db.prepare(
+        `SELECT ${q.by.column} AS value, COUNT(*) AS events, COUNT(DISTINCT user_key) AS users FROM event_rows
+         WHERE ${where.join(' AND ')} GROUP BY value ORDER BY events DESC, value LIMIT ?`,
+      ).bind(...binds, q.limit).all<{ value: string; events: number; users: number }>();
+      return { by: q.by.name, rows: results, source: 'd1_substitute' };
+    },
   };
 }
 
@@ -76,7 +102,8 @@ export interface AeConfig {
 /**
  * Production implementation over the Analytics Engine SQL API.
  * Column mapping mirrors the consumer's writeDataPoint: index1 = product_env_id,
- * blob1 product_id, blob2 env, blob3 event_name, blob4 user_key, blob5 anonymous_id.
+ * blob1 product_id, blob2 env, blob3 event_name, blob4 user_key, blob5 anonymous_id, blob6 path, blob7 browser,
+ * blob8 os, blob9 device, blob10 country, blob11 source, blob12–14 custom dimensions (PRD §21.8).
  * REMOTE-UNVERIFIED: only exercised against a fake fetch locally (PRD §19.10).
  */
 export function aeAnalyticsQuery(cfg: AeConfig): AnalyticsQuery {
@@ -125,6 +152,31 @@ export function aeAnalyticsQuery(cfg: AeConfig): AnalyticsQuery {
         daily: rows,
         events_total: rows.reduce((n, r) => n + r.events, 0),
         top_events: top.map((r) => ({ name: r.name, count: Number(r.count) })),
+        source: 'analytics_engine',
+      };
+    },
+    async breakdown(q) {
+      if (!parseClientId(q.productEnvId)) throw new RangeError('invalid productEnvId');
+      const day = (d: number) => new Date(d * DAY).toISOString().slice(0, 10);
+      let where = `index1 = '${q.productEnvId}' AND timestamp >= toDateTime('${day(q.fromDay)} 00:00:00') AND timestamp < toDateTime('${day(q.toDay)} 00:00:00')`;
+      if (q.event) where += ` AND blob3 = ${aeString(q.event)}`;
+      for (const f of q.filters) where += ` AND ${f.dim.ae} = ${aeString(f.value)}`;
+      const events = await sql<{ value: string; events: string | number }>(
+        `SELECT ${q.by.ae} AS value, sum(_sample_interval) AS events FROM ${dataset} WHERE ${where}
+         GROUP BY value ORDER BY events DESC LIMIT ${q.limit} FORMAT JSON`,
+      );
+      // Distinct users only for the values shown (AE SQL has no JOIN; count(DISTINCT) on a blob is approximate under sampling).
+      // The values come from end users' events: only plain literals are put into this query; the others get
+      // `users: null` (unknown) rather than an escaped literal whose meaning AE does not document.
+      const listed = events.map((r) => String(r.value)).filter(aeLiteralSafe);
+      const users = listed.length === 0 ? [] : await sql<{ value: string; users: string | number }>(
+        `SELECT ${q.by.ae} AS value, count(DISTINCT blob4) AS users FROM ${dataset} WHERE ${where} AND blob4 != ''
+         AND ${q.by.ae} IN (${listed.map(aeString).join(', ')}) GROUP BY value FORMAT JSON`,
+      );
+      const u = new Map(users.map((r) => [r.value, Number(r.users)]));
+      return {
+        by: q.by.name,
+        rows: events.map((r) => ({ value: r.value, events: Number(r.events), users: aeLiteralSafe(String(r.value)) ? u.get(r.value) ?? 0 : null })),
         source: 'analytics_engine',
       };
     },

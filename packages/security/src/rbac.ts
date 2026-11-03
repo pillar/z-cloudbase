@@ -13,7 +13,13 @@ export type Action =
   | 'storage:read_meta'    // object metadata and usage, never file content
   | 'logs:read'
   | 'analytics:read'
-  | 'audit:read';
+  | 'analytics:export'     // raw event export (PRD §21.9); developers only outside prod, operators never
+  | 'audit:read'
+  // PRD §21.5 / §21.6 (v3.1)
+  | 'users:ban'            // platform-wide ban / unban (owner only)
+  | 'users:impersonate'    // support impersonation (owner only)
+  | 'webhooks:read'        // product webhook endpoints and delivery log
+  | 'webhooks:manage';     // create / change / delete / rotate / test webhook endpoints
 
 export interface Grant {
   role: Role;
@@ -27,14 +33,14 @@ export interface Target {
 }
 
 const OPERATOR_ACTIONS: ReadonlySet<Action> = new Set([
-  'product:read', 'storage:read_meta', 'logs:read', 'analytics:read', 'audit:read',
+  'product:read', 'storage:read_meta', 'logs:read', 'analytics:read', 'audit:read', 'webhooks:read',
 ]);
 const PRODUCT_ADMIN_ACTIONS: ReadonlySet<Action> = new Set([
   'product:read', 'product:write', 'keys:manage', 'team:manage', 'users:read', 'users:manage',
-  'storage:read_meta', 'logs:read', 'analytics:read', 'audit:read',
+  'storage:read_meta', 'logs:read', 'analytics:read', 'analytics:export', 'audit:read', 'webhooks:read', 'webhooks:manage',
 ]);
 const DEVELOPER_ACTIONS: ReadonlySet<Action> = new Set([
-  'product:read', 'keys:manage', 'storage:read_meta', 'logs:read', 'analytics:read',
+  'product:read', 'keys:manage', 'storage:read_meta', 'logs:read', 'analytics:read', 'analytics:export', 'webhooks:read', 'webhooks:manage',
 ]);
 
 function grantAllows(g: Grant, action: Action, target: Target): boolean {
@@ -47,8 +53,8 @@ function grantAllows(g: Grant, action: Action, target: Target): boolean {
       return target.productId !== undefined && g.productId === target.productId && PRODUCT_ADMIN_ACTIONS.has(action);
     case 'product_developer':
       if (target.productId === undefined || g.productId !== target.productId || !DEVELOPER_ACTIONS.has(action)) return false;
-      // Developers never touch production secrets (PRD §2).
-      if (action === 'keys:manage') return target.env !== undefined && target.env !== 'prod';
+      // Developers never touch production secrets (PRD §2), webhook signing secrets included (§21.6), nor export prod events (§21.9).
+      if (action === 'keys:manage' || action === 'analytics:export' || action === 'webhooks:manage') return target.env !== undefined && target.env !== 'prod';
       return true;
   }
 }

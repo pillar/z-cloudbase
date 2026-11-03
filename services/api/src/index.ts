@@ -14,7 +14,7 @@ app.use('/v1/*', cors({
   origin: (origin) => origin,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Platform-Key', 'Idempotency-Key'],
-  exposeHeaders: ['x-request-id'],
+  exposeHeaders: ['x-request-id', 'X-Next-Cursor'],
   maxAge: 600,
 }));
 

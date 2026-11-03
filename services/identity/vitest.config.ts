@@ -30,6 +30,7 @@ export default defineConfig(async () => {
         },
       }),
     ],
-    test: { setupFiles: ['./test/apply-migrations.ts'] },
+    // test-node/smtp-peer.ts: a fake SMTP server in Node for the SMTP transport tests (outside workerd).
+    test: { setupFiles: ['./test/apply-migrations.ts'], globalSetup: ['./test-node/smtp-peer.ts'] },
   };
 });

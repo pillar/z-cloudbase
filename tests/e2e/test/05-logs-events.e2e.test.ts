@@ -105,7 +105,7 @@ describe('§15-10 / §15-11 events: queue → consumer → analytics, isolation 
     expect(sb.events_total).toBe(0);
     expect((await admin(adminB, 'GET', `/products/${a.productId}/analytics?env=prod`)).status).toBe(403);
     // Raw user ids never reach the analytics store, only the per-product HMAC user_key.
-    const rows = await d1<{ user_key: string | null }>(stack(), 'ingest', 'SELECT user_key FROM events_substitute WHERE product_env_id = ?', [a.prod.clientId]);
+    const rows = await d1<{ user_key: string | null }>(stack(), 'ingest', 'SELECT user_key FROM event_rows WHERE product_env_id = ?', [a.prod.clientId]);
     expect(rows.length).toBeGreaterThanOrEqual(3);
     expect(rows.every((r) => r.user_key && !r.user_key.includes(u.userId))).toBe(true);
   });
@@ -139,7 +139,7 @@ describe('§15-11 queue failure and DLQ recovery drill', () => {
   it('a message the consumer cannot store is retried, dead-lettered, persisted in the archive and replayed after the fault is fixed', async () => {
     const p = await createProduct(ownerToken, uniqueProductId('dq'));
     // Fault injection: the analytics store rejects this event (a stand-in for a storage outage).
-    await d1(stack(), 'ingest', `CREATE TRIGGER IF NOT EXISTS e2e_dlq_fault BEFORE INSERT ON events_substitute
+    await d1(stack(), 'ingest', `CREATE TRIGGER IF NOT EXISTS e2e_dlq_fault BEFORE INSERT ON event_rows
       WHEN NEW.event_name = 'dlq_drill' BEGIN SELECT RAISE(ABORT, 'e2e forced failure'); END`);
     try {
       const eventId = randomUUID();

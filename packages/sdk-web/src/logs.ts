@@ -1,16 +1,9 @@
 import { BROWSER_ERROR_MAX_BYTES, type BrowserErrorInput } from '@z-cloudbase/contracts';
 import { validateConfig, type ClientConfig } from './config.ts';
 import { createHttp } from './http.ts';
+import { scrub } from './scrub.ts';
 
 const byteLength = (s: string) => new TextEncoder().encode(s).length;
-
-/** Mask credentials that could end up in an error message or stack. */
-function scrub(s: string): string {
-  return s
-    .replace(/\bBearer\s+[\w.~+/-]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[REDACTED]')
-    .replace(/\b(?:pk|sk)_(?:dev|staging|prod)_[0-9A-Za-z]+/g, '[REDACTED]');
-}
 
 /** Shrink the report until its JSON fits the ingest limit: stack first, then message. */
 function fitToLimit(message: string, stack: string | undefined, rest: Pick<BrowserErrorInput, 'url' | 'timestamp'>): BrowserErrorInput {

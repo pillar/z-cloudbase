@@ -1,4 +1,6 @@
 import { newId } from '@z-cloudbase/contracts';
+import type { Context } from 'hono';
+import type { AppEnv } from '../context.ts';
 
 export interface AuditEntry {
   actorType: 'user' | 'service' | 'system';
@@ -27,4 +29,17 @@ export function auditStatement(db: D1Database, e: AuditEntry): D1PreparedStateme
 
 export async function writeAudit(db: D1Database, e: AuditEntry): Promise<void> {
   await auditStatement(db, e).run();
+}
+
+/**
+ * Audit statement for a request: adds the request id and, when the end user's token came from a support
+ * impersonation (`act`), the owner acting for them as `metadata.actor_id` (PRD §21.5.2).
+ */
+export function requestAuditStatement(c: Context<AppEnv>, e: Omit<AuditEntry, 'requestId'>): D1PreparedStatement {
+  const actor = c.get('user')?.actor;
+  return auditStatement(c.env.DB, {
+    ...e,
+    requestId: c.get('requestId'),
+    ...(actor ? { metadata: { ...e.metadata, actor_id: actor } } : {}),
+  });
 }

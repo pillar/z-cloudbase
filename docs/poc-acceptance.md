@@ -75,6 +75,30 @@
 | `pnpm platform:deploy` 真实部署（建资源、迁移、secrets、custom domain / workers.dev、install） | 无 | **远程未验证** |
 | `pnpm platform:reset-admin`（`wrangler secret put` 后调用） | 无 | **远程未验证** |
 
+## v3.1：邮件、注册模式、Passkey、Magic link、品牌与多语言（PRD §21.2–21.4）
+
+| 项目 | 证据 | 状态 |
+|---|---|---|
+| SMTP 发信（worker-mailer，`cloudflare:sockets`）：AUTH、MAIL / RCPT / DATA、错误不含收件人和服务器原文 | identity：`email-transports.test.ts`（Node 中的假 SMTP 对端，明文 TCP） | 本地协议边界已验证；隐式 TLS 握手与真实投递**远程未验证** |
+| Cloudflare Email Service（`send_email` 绑定） | identity：`email-transports.test.ts`（假绑定）；`platform:deploy --dry-run` 生成 `SEND_EMAIL` 绑定 | 本地已验证（假绑定）；真实发送需 Workers Paid，**远程未验证** |
+| 注册模式 open / invite / closed、邮箱验证开关、无邮件时的降级 | identity：`signup-modes.test.ts` | 本地已验证 |
+| 邀请：只用一次、过期 / 撤销 / 未知链接一致拒绝、邮件送达时视为已验证、审计；api 路由仅 owner | identity：`signup-modes.test.ts`；api：`admin-invitations.test.ts` | 本地已验证 |
+| Passkey：注册 / 登录 / 删除、UV 必需、RP 固定为 issuer、OIDC 流程中继续授权、满足控制台 MFA | identity：`passkey.test.ts`（软件认证器 `test/webauthn.ts`）；e2e：`08-sign-in-methods` | 本地已验证（软件认证器）；真实设备 / 浏览器 WebAuthn **未验证** |
+| Magic link：一次性、哈希存储、回调限制、继续授权、TOTP 账号不发链接、限流 | identity：`magic-link.test.ts`；e2e：`08-sign-in-methods` | 本地已验证（outbox）；真实投递**远程未验证** |
+| 登录页与邮件中英双语、品牌值校验 | identity：`i18n-brand.test.ts`；console：`brand.test.ts`；e2e：`08-sign-in-methods` | 本地已验证 |
+| Passkey 注册的第二因素前置条件（已有 TOTP / Passkey 时需本会话 5 分钟内通过第二因素）、添加通知邮件 | identity：`passkey.test.ts` | 本地已验证（邮件为本地 outbox） |
+
+## v3.1：封禁、代登录、用户导出、产品 Webhook（PRD §21.5–21.6）
+
+| 项目 | 证据 | 状态 |
+|---|---|---|
+| 封禁 / 解封：所有登录方式在会话创建处拦截，撤销会话与产品 token，refresh 被拒，api 返回 `user_banned`，到期自动解封；社交登录回跳显示封禁提示 | identity：`user-admin.test.ts`；api：`admin-user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 代登录：仅 owner、需已开启 TOTP 且 5 分钟内验证、不可代登录团队成员、60 分钟上限、token 带 `act`、控制台与账号安全操作被拒、停止后恢复 owner 会话、全程审计 | identity：`user-admin.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 代登录加固：确认表单限流与 5 次错误取消、只进入用户登录过的产品环境、带 `act` 的 token 不能退出产品 / 删除文件（`impersonation_restricted`）、审计记 `metadata.actor_id`、会话不续期、失效会话即时删除、`act` 到期边界拒签、end-session 结束记录 | identity：`user-admin.test.ts`；api：`me.test.ts`、`storage.test.ts`、`audit.test.ts`；e2e：`08-user-admin-webhooks` | 本地已验证 |
+| 用户 CSV 导出：按产品环境、邮箱需显式请求、公式注入防护、审计、跨产品隔离 | api：`admin-user-admin.test.ts`、`admin-isolation.test.ts` | 本地已验证 |
+| Webhook：Standard Webhooks 签名（参考向量）、SSRF 校验、重试退避与放弃、投递记录、跨产品隔离、`verifyWebhook()` | webhooks / security / api / consumer 单元测试；e2e：`08-user-admin-webhooks`（本地接收端） | 本地已验证；真实出站请求**远程未验证** |
+| Analytics Engine SQL：值只允许纯字面量（breakdown 筛选含引号 / 反斜杠 400；AE 返回的不安全值不进第二条查询） | api：`analytics.test.ts`（假 fetch）、`admin-analytics.test.ts` | 本地已验证；真实 AE SQL **远程未验证** |
+
 ## 派生前的远程验证摘要（2026-10-09）
 
 本代码派生自一个私有 POC。该 POC 的同一套 Worker 曾部署到 Cloudflare（Workers Free 套餐）验证过：跨产品 SSO 与越权 401、事件经 Queue 进入 Analytics Engine 并可由 AE SQL 查询、R2 S3 预签名直传（含 CORS 预检）、Turnstile 拦截与 siteverify 拒绝路径、Resend 发信、控制台 Workers Static Assets 与管理员 TOTP。当时发现并修复的问题（PATCH 的 CORS、按队列角色路由、AE 数据集可配置、AE 不支持 `uniq`、认证限流改用 D1 计数）都已包含在本仓库中。之后的去品牌化、自部署脚本与初始化流程没有做过远程验证。
@@ -84,12 +108,12 @@
 - 真实 Google / Apple 登录（含 Apple `form_post` 在真实浏览器 `SameSite=Lax` 下的表现）：只用 mock IdP 验证过（D10）。
 - R2 S3 兼容预签名（`R2PresignSigner`）：派生前远程验证过；需要部署方提供 R2 S3 API token。
 - Analytics Engine 写入与 AE SQL 查询：派生前远程验证过；本地用 D1 替身；查询需要部署方提供 `CF_ANALYTICS_API_TOKEN`。
-- 认证限流：Cloudflare Rate Limiting 绑定实测基本不拦截，已改为 D1 固定窗口计数（迁移 `0014_auth_rate_counters`，键为 HMAC，consumer cron 清理过期窗口），派生前远程验证过 429 + `Retry-After`。采集入口（600 批次 / 分钟）仍用绑定，属软限制；多个部署在同一账号时共享该绑定的 namespace。
+- 认证限流：Cloudflare Rate Limiting 绑定实测基本不拦截，已改为 D1 固定窗口计数（迁移 `0014_auth_rate_counters`，键为 HMAC，consumer cron 清理过期窗口），派生前远程验证过 429 + `Retry-After`。采集入口（600 批次 / 分钟）仍用绑定，属软限制；v3.1 起部署脚本按前缀派生 namespace，同一账号的多个部署互不影响。
 - Turnstile：可选；真人通过挑战后的放行路径未验证。
 - 压测、延迟与成本基准、成本告警：未做。
 - 备份与恢复演练：未做。
-- 管理员 MFA：TOTP + 备用码（本地已验证），默认可选。没有 WebAuthn；丢失 TOTP 且用完备用码时用 `pnpm platform:reset-admin --disable-2fa`（远程未验证）。
-- 邮件：Resend 适配器；送达率、退信处理未验证。未配置邮件时用户邮箱注册会失败（验证邮件发不出），管理员不受影响（由初始化接口直接创建为已验证）。
+- 管理员 MFA：TOTP + 备用码，或用户验证的 Passkey 登录（本地已验证，Passkey 用软件认证器），默认可选。丢失 TOTP 且用完备用码时用 `pnpm platform:reset-admin --disable-2fa`（远程未验证）；该命令不删除 Passkey。
+- 邮件：Resend / SMTP / Cloudflare Email Service 适配器；送达率、退信处理未验证。未配置邮件且要求验证（默认）时邮箱注册、找回密码、Magic link 不可用；运营者可用 `--require-email-verification false` 放开（PRD §21.2 写明风险）。管理员不受影响（由初始化接口直接创建为已验证）。
 - 导出一次性链接：已实现（本地已验证）。过期链接（含已使用的）由 consumer 每 15 分钟的 cron 删除（`cron.test.ts` 覆盖）。
 - 移动端（RFC 8252 系统浏览器 + 自定义 scheme）流程、scrypt 在 Workers 生产环境的 CPU 时间：未验证。
 - 浏览器行为是 Node 中的模拟（Cookie、重定向、CORS 预检），不是真实浏览器引擎；`SameSite` 等 Cookie 属性未模拟。
@@ -134,3 +158,14 @@ pnpm platform:deploy --dry-run                       # 只在本地生成部署�
 | 10 | consumer 手工解析 `product_env_id` | 改用 contracts 的 `parseClientId` | 回归测试通过 |
 
 - 残留风险：匿名升级到 Email 时，必须明确告诉用户发生了冲突（PRD §19.7），所以 409 在设计上就会暴露“该邮箱已注册”，限流只能降低探测速度。MVP 可以考虑先发验证邮件，冲突信息只在邮件里告知。
+
+## v3.1 数据采集、分析与归档（PRD §21.7–21.9，2026-11-04，本地）
+
+| 能力 | 覆盖用例 | 状态 |
+|---|---|---|
+| Web SDK 错误 / Web Vitals / 点击采集、同意开关、用户属性 | `packages/sdk-web/test/capture.test.ts`（浏览器 API 为测试替身：PerformanceObserver、元素对象） | 本地已验证（真实浏览器未测） |
+| 服务端派生上下文、打包队列消息、服务密钥 `user_id` 归属、用户属性接口 | `services/api/test/events-collection.test.ts`；`request.cf.country` 在本地为空 | 本地已验证 / 国家维度远程待验证 |
+| consumer 写 `event_rows` / `actor_daily` / `actors`、gzip 归档、重投递幂等、保留期清理、归档到期删除、删除用户的分析数据与导出抑制 | `services/consumer/test/analytics-store.test.ts` | 本地已验证（D1 / R2 为 Miniflare） |
+| 漏斗、留存、分组、事件明细、设置、导出及每个路由的跨产品越权 | `services/api/test/admin-analytics.test.ts` | 本地已验证；生产环境的分组走 AE SQL，只用假 fetch 测过 SQL 拼接 → 远程待验证 |
+| 端到端：Web / Server SDK → 队列 → consumer → 漏斗 / 留存 / 分组 / 明细 / 导出，隔离与退出产品后的擦除 | `tests/e2e/test/08-analytics.e2e.test.ts` | 本地已验证 |
+| 容量（D1 行写入、Queues 操作、AE 250 点 / 调用、R2 Class A）与 Workers Free 10 ms CPU 下的导出 | PRD §21.8 估算，未压测 | 远程待验证 |

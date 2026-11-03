@@ -15,11 +15,16 @@ export const AccessTokenClaims = z.object({
   env: z.enum(ENVIRONMENTS),
   anon: z.boolean(),
   scope: z.string(),
+  /**
+   * RFC 8693 actor: present only on tokens issued during an impersonation (PRD §21.5.2); `sub` is the
+   * platform owner acting as this user. Products that must not accept support sessions reject such tokens.
+   */
+  act: z.object({ sub: z.string().startsWith('usr_') }).optional(),
 });
 export type AccessTokenClaims = z.infer<typeof AccessTokenClaims>;
 
 /** Console access token claims: same issuer/keys as product tokens, `aud` = CONSOLE_AUDIENCE, no pid/env. */
 export const ConsoleTokenClaims = AccessTokenClaims.pick({
-  iss: true, sub: true, aud: true, exp: true, iat: true, jti: true, sid: true, scope: true,
+  iss: true, sub: true, aud: true, exp: true, iat: true, jti: true, sid: true, scope: true, act: true,
 });
 export type ConsoleTokenClaims = z.infer<typeof ConsoleTokenClaims>;

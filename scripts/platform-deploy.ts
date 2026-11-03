@@ -3,6 +3,9 @@
 //   pnpm platform:deploy --admin-email you@example.com [--name "Acme Platform"] [--domain example.com]
 //                        [--prefix z-cloudbase] [--require-admin-2fa true|false] [--account-id <id>]
 //                        [--location weur|eeur|apac|oc|wnam|enam] [--dry-run]
+//                        [--signup-mode open|invite|closed] [--require-email-verification true|false]
+//                        [--default-lang en|zh] [--passkeys true|false] [--magic-link true|false]
+//                        [--logo-url https://…] [--primary-color '#4f46e5'] [--tagline "…"]
 //
 // Needs `wrangler login` (or CLOUDFLARE_API_TOKEN). Every step is idempotent, so the same command
 // upgrades a deployment after `git pull`; the settings of the first run are kept in .deploy/<prefix>.json
@@ -16,8 +19,12 @@
 // 4. calls /setup/install with that token: console redirect URI, and — only on a platform without an
 //    owner — the first administrator with a random password, printed once.
 //
-// Optional integrations are read from the environment and uploaded as secrets when set:
-//   RESEND_API_KEY + EMAIL_FROM            email (sign-up verification, password reset)
+// Optional integrations are read from the environment and uploaded as secrets when set (non-secret mail
+// settings are kept in the deployment record, so later runs need not repeat them):
+//   EMAIL_FROM + EMAIL_TRANSPORT=resend|smtp|cloudflare   email (verification, password reset, magic link, invitations)
+//     resend:     RESEND_API_KEY (implied transport when only it is set)
+//     smtp:       SMTP_HOST [SMTP_PORT=465, implicit TLS only] [SMTP_USERNAME + SMTP_PASSWORD]
+//     cloudflare: Cloudflare Email Service `send_email` binding (Workers Paid, onboarded sending domain)
 //   TURNSTILE_SITE_KEY + TURNSTILE_SECRET_KEY   Turnstile after repeated failed sign-ins
 //   GOOGLE_CLIENT_ID/SECRET, APPLE_CLIENT_ID/SECRET   social sign-in
 //   R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY      presigned storage URLs (R2 S3 API token)
@@ -28,10 +35,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
+import { TAGLINE_MAX, validColor, validLogoUrl, validTagline } from '../services/identity/src/settings.ts';
 import { generatePassword, installPlatform, randomSecret } from './lib/setup-client.ts';
 import {
-  PREFIX_RE, ROOT, WranglerError, generatedConfig, readJsonc, readRecord, resourceNames, wrangler, writeRecord,
-  type DeploymentRecord, type ResourceNames,
+  PREFIX_RE, ROOT, WranglerError, applyRateLimitNamespaces, generatedConfig, readJsonc, readRecord, resourceNames, wrangler, writeRecord,
+  type DeploymentRecord, type ResourceNames, type RestorePoint,
 } from './lib/wrangler.ts';
 
 const LOCAL = resourceNames('z-cloudbase');
@@ -65,6 +73,14 @@ function options() {
       'account-id': { type: 'string' },
       location: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
+      'signup-mode': { type: 'string' },
+      'require-email-verification': { type: 'string' },
+      'default-lang': { type: 'string' },
+      passkeys: { type: 'string' },
+      'magic-link': { type: 'string' },
+      'logo-url': { type: 'string' },
+      'primary-color': { type: 'string' },
+      tagline: { type: 'string' },
     },
   });
   const prefix = values.prefix ?? 'z-cloudbase';
@@ -73,7 +89,61 @@ function options() {
   if (domain !== undefined && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain)) fail('--domain: a domain name such as example.com');
   const require2fa = values['require-admin-2fa'];
   if (require2fa !== undefined && !['true', 'false'].includes(require2fa)) fail('--require-admin-2fa: true or false');
-  return { ...values, prefix, domain, require2fa: require2fa === undefined ? undefined : require2fa === 'true', dryRun: values['dry-run']! };
+  const bool = (flag: string) => {
+    const v = values[flag as keyof typeof values] as string | undefined;
+    if (v !== undefined && !['true', 'false'].includes(v)) fail(`--${flag}: true or false`);
+    return v === undefined ? undefined : v === 'true';
+  };
+  const signupMode = values['signup-mode'];
+  if (signupMode !== undefined && !['open', 'invite', 'closed'].includes(signupMode)) fail('--signup-mode: open, invite or closed');
+  const defaultLang = values['default-lang'];
+  if (defaultLang !== undefined && !['en', 'zh'].includes(defaultLang)) fail('--default-lang: en or zh');
+  // Branding (PRD §21.4): the same strict rules as the identity worker; an empty value clears a setting.
+  const logoUrl = values['logo-url'];
+  if (logoUrl && !validLogoUrl(logoUrl)) fail('--logo-url: an https:// URL (no spaces, quotes or angle brackets, ≤ 2048 characters)');
+  const primaryColor = values['primary-color'];
+  if (primaryColor && !validColor(primaryColor)) fail('--primary-color: a hex color such as #4f46e5 or #46e');
+  const tagline = values.tagline;
+  if (tagline && !validTagline(tagline)) fail(`--tagline: one line of at most ${TAGLINE_MAX} characters`);
+  return {
+    ...values,
+    prefix,
+    domain,
+    require2fa: require2fa === undefined ? undefined : require2fa === 'true',
+    dryRun: values['dry-run']!,
+    signupMode: signupMode as 'open' | 'invite' | 'closed' | undefined,
+    requireEmailVerification: bool('require-email-verification'),
+    defaultLang: defaultLang as 'en' | 'zh' | undefined,
+    passkeys: bool('passkeys'),
+    magicLink: bool('magic-link'),
+    logoUrl,
+    primaryColor,
+    tagline,
+  };
+}
+
+type Mail = NonNullable<DeploymentRecord['mail']>;
+
+/** Mail settings from the environment, else the record of an earlier run (PRD §21.2). */
+function mailSettings(recorded: Mail | undefined): Mail {
+  const transport = env('EMAIL_TRANSPORT') ?? recorded?.transport ?? (env('RESEND_API_KEY') ? 'resend' : undefined);
+  if (transport !== undefined && !['resend', 'smtp', 'cloudflare'].includes(transport)) fail('EMAIL_TRANSPORT: resend, smtp or cloudflare');
+  const m: Mail = {
+    transport: transport as Mail['transport'],
+    from: env('EMAIL_FROM') ?? recorded?.from,
+    smtpHost: env('SMTP_HOST') ?? recorded?.smtpHost,
+    smtpPort: env('SMTP_PORT') ?? recorded?.smtpPort,
+    smtpUsername: env('SMTP_USERNAME') ?? recorded?.smtpUsername,
+  };
+  if (m.transport && !m.from) fail('set EMAIL_FROM for the mail transport');
+  if (m.from && !/^(?:[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+|[^<>]*<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>)$/.test(m.from)) fail('EMAIL_FROM: an address, or "Name <address>"');
+  if (m.transport === 'smtp') {
+    if (!m.smtpHost) fail('EMAIL_TRANSPORT=smtp needs SMTP_HOST');
+    if (m.smtpPort && !/^\d{1,5}$/.test(m.smtpPort)) fail('SMTP_PORT: a port number (465 for implicit TLS)');
+    if (m.smtpPort === '25') fail('SMTP_PORT: Workers cannot connect to port 25; use the provider\'s implicit-TLS port (465)');
+    if (Boolean(env('SMTP_PASSWORD')) && !m.smtpUsername) fail('SMTP_PASSWORD needs SMTP_USERNAME');
+  }
+  return m;
 }
 
 async function ask(question: string): Promise<string> {
@@ -136,12 +206,40 @@ async function d1Id(name: string): Promise<string | null> {
   }
 }
 
-async function ensureD1(name: string, location: string | undefined): Promise<string> {
+async function ensureD1(name: string, location: string | undefined): Promise<{ id: string; created: boolean }> {
   const existing = await d1Id(name);
-  if (existing) return existing;
+  if (existing) return { id: existing, created: false };
   await wrangler(['d1', 'create', name, ...(location ? ['--location', location] : [])]);
-  return (await d1Id(name)) ?? fail(`D1 database ${name} was created but cannot be read back`);
+  return { id: (await d1Id(name)) ?? fail(`D1 database ${name} was created but cannot be read back`), created: true };
 }
+
+/** Current D1 Time Travel bookmark (`wrangler d1 time-travel info --json`), or null with a warning. */
+async function currentBookmark(db: string): Promise<string | null> {
+  try {
+    const out = await wrangler(['d1', 'time-travel', 'info', db, '--json']);
+    const bookmark = (JSON.parse(out.slice(out.indexOf('{'))) as { bookmark?: string }).bookmark;
+    if (bookmark) return bookmark;
+  } catch (e) {
+    console.warn(`  warning: cannot read the Time Travel bookmark of ${db}: ${e instanceof Error ? e.message.split('\n')[0] : e}`);
+  }
+  return null;
+}
+
+const restoreCommand = (db: string, bookmark: string) => `pnpm exec wrangler d1 time-travel restore ${db} --bookmark=${bookmark}`;
+
+function printRestorePoint(rp: RestorePoint, log: (m: string) => void = console.log) {
+  log(`  Restore points taken ${rp.at}${rp.fromCommit ? ` (before upgrading from ${rp.fromVersion ?? '?'} @ ${rp.fromCommit})` : ''}.`);
+  log('  To roll the databases back (DESTRUCTIVE: overwrites current data; then deploy the earlier commit again):');
+  for (const [db, b] of Object.entries(rp.bookmarks)) log(`    ${restoreCommand(db, b)}`);
+}
+
+function gitCommit(): string | undefined {
+  const head = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+  if (head.status !== 0) return undefined;
+  const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim() !== '';
+  return head.stdout.trim() + (dirty ? '-dirty' : '');
+}
+const VERSION = (readJsonc<{ version?: string }>('package.json').version ?? '0.0.0');
 
 /** Create unless `info` finds it; a create that fails for another reason than "exists" stops the run. */
 async function ensure(kind: 'r2 bucket' | 'queues', name: string, location?: string): Promise<void> {
@@ -169,6 +267,8 @@ interface GenerateInput {
   urls: { identity: string; api: string; console: string };
   domain: string | undefined;
   vars: Record<WorkerKey, Record<string, string>>;
+  /** Extra top-level config per worker (e.g. identity's `send_email` binding for Cloudflare Email Service). */
+  extra?: Partial<Record<WorkerKey, Record<string, unknown>>>;
 }
 
 function generate(worker: (typeof WORKERS)[number], prefix: string, g: GenerateInput): string {
@@ -177,9 +277,12 @@ function generate(worker: (typeof WORKERS)[number], prefix: string, g: GenerateI
   delete config.dev;
   // Secrets are managed here (AUTH_SECRET once, SETUP_TOKEN every run), not validated by wrangler.
   delete config.secrets;
+  // The rate limit namespace is account-wide: derive it from the prefix so deployments do not share counters.
+  applyRateLimitNamespaces(config, prefix);
   for (const db of config.d1_databases ?? []) db.database_id = g.d1Ids[db.database_name] ?? fail(`no D1 id for ${db.database_name}`);
   const vars = { ...config.vars, ...g.vars[worker.key] };
   if (Object.keys(vars).length) config.vars = vars;
+  Object.assign(config, g.extra?.[worker.key] ?? {});
   config.preview_urls = false;
   const host = worker.key === 'identity' || worker.key === 'api' || worker.key === 'console' ? new URL(g.urls[worker.key]).host : null;
   if (g.domain && host) {
@@ -212,6 +315,14 @@ async function secretNames(worker: string): Promise<Set<string>> {
 
 const pick = (...names: string[]) => Object.fromEntries(names.flatMap((n) => (env(n) ? [[n, env(n)!]] : [])));
 
+/** The mail transport has everything it needs (secrets: uploaded now or kept from earlier runs). */
+function mailReady(m: Mail, configured: Set<string>): boolean {
+  if (!m.from) return false;
+  if (m.transport === 'resend') return configured.has('RESEND_API_KEY');
+  if (m.transport === 'smtp') return Boolean(m.smtpHost) && (!m.smtpUsername || configured.has('SMTP_PASSWORD'));
+  return m.transport === 'cloudflare';
+}
+
 // --- main ------------------------------------------------------------------------------------
 
 async function main() {
@@ -228,7 +339,19 @@ async function main() {
 
   // Both or neither: the testing site key with a real secret would lock users out once a challenge is due.
   if (Boolean(env('TURNSTILE_SITE_KEY')) !== Boolean(env('TURNSTILE_SECRET_KEY'))) fail('set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY together');
-  if (Boolean(env('RESEND_API_KEY')) !== Boolean(env('EMAIL_FROM'))) fail('set RESEND_API_KEY and EMAIL_FROM together');
+  const mail = mailSettings(record?.mail);
+  // Registration, language, sign-in methods and branding (PRD §21.2–21.4): flags, else the record, else defaults.
+  const signupMode = o.signupMode ?? record?.signupMode ?? 'open';
+  const requireEmailVerification = o.requireEmailVerification ?? record?.requireEmailVerification ?? true;
+  const defaultLang = o.defaultLang ?? record?.defaultLang ?? 'en';
+  const passkeys = o.passkeys ?? record?.passkeys ?? true;
+  const magicLink = o.magicLink ?? record?.magicLink ?? true;
+  const pickBrand = (flag: string | undefined, kept: string | undefined) => (flag === undefined ? kept : flag || undefined);
+  const brand = {
+    logoUrl: pickBrand(o.logoUrl, record?.brand?.logoUrl),
+    primaryColor: pickBrand(o.primaryColor, record?.brand?.primaryColor)?.toLowerCase(),
+    tagline: pickBrand(o.tagline, record?.brand?.tagline),
+  };
 
   console.log(`${o.dryRun ? 'Dry run of' : 'Deploying'} "${name}" (prefix ${o.prefix}${domain ? `, domain ${domain}` : ', workers.dev'})`);
 
@@ -238,13 +361,18 @@ async function main() {
   const urls = urlsFor(domain, domain || o.dryRun ? 'your-subdomain' : await workersSubdomain(accountId), names);
 
   const d1Ids: Record<string, string> = {};
+  /** Databases that existed before this run: only those have data worth a restore point. */
+  const existingDbs: string[] = [];
   if (o.dryRun) {
     d1Ids[names.platformDb] = '00000000-0000-4000-8000-000000000001';
     d1Ids[names.ingestDb] = '00000000-0000-4000-8000-000000000002';
   } else {
     step('Resources (D1, R2, Queues)');
-    d1Ids[names.platformDb] = await ensureD1(names.platformDb, o.location);
-    d1Ids[names.ingestDb] = await ensureD1(names.ingestDb, o.location);
+    for (const db of [names.platformDb, names.ingestDb]) {
+      const r = await ensureD1(db, o.location);
+      d1Ids[db] = r.id;
+      if (!r.created) existingDbs.push(db);
+    }
     for (const bucket of [names.storage, names.archive]) await ensure('r2 bucket', bucket, o.location);
     for (const queue of [names.logs, names.events, names.logsDlq, names.eventsDlq]) await ensure('queues', queue);
     console.log(`  D1 ${names.platformDb}, ${names.ingestDb}; R2 ${names.storage}, ${names.archive}; Queues ${names.logs}, ${names.events} (+ DLQs)`);
@@ -257,19 +385,60 @@ async function main() {
       PLATFORM_NAME: name,
       REQUIRE_ADMIN_2FA: String(requireAdmin2fa),
       ...(env('TURNSTILE_SITE_KEY') ? { TURNSTILE_SITE_KEY: env('TURNSTILE_SITE_KEY')! } : {}),
-      ...(env('EMAIL_FROM') ? { EMAIL_FROM: env('EMAIL_FROM')! } : {}),
+      SIGNUP_MODE: signupMode,
+      REQUIRE_EMAIL_VERIFICATION: String(requireEmailVerification),
+      DEFAULT_LANG: defaultLang,
+      PASSKEYS: String(passkeys),
+      MAGIC_LINK: String(magicLink),
+      ...(mail.from ? { EMAIL_FROM: mail.from } : {}),
+      ...(mail.transport ? { EMAIL_TRANSPORT: mail.transport } : {}),
+      ...(mail.transport === 'smtp'
+        ? { SMTP_HOST: mail.smtpHost!, SMTP_PORT: mail.smtpPort ?? '465', ...(mail.smtpUsername ? { SMTP_USERNAME: mail.smtpUsername } : {}) }
+        : {}),
+      ...(brand.logoUrl ? { BRAND_LOGO_URL: brand.logoUrl } : {}),
+      ...(brand.primaryColor ? { BRAND_PRIMARY_COLOR: brand.primaryColor } : {}),
+      ...(brand.tagline ? { SIGNIN_TAGLINE: brand.tagline } : {}),
     },
     api: { ISSUER: urls.identity, API_ORIGIN: urls.api, DEPLOY_ENV: 'production', AE_DATASET: names.dataset },
     consumer: { DEPLOY_ENV: 'production' },
     console: {},
   };
-  const configs = Object.fromEntries(WORKERS.map((w) => [w.key, generate(w, o.prefix, { names, d1Ids, urls, domain, vars })])) as Record<WorkerKey, string>;
+  // Cloudflare Email Service sends through a `send_email` binding (no secret); other transports need none.
+  const extra: GenerateInput['extra'] = mail.transport === 'cloudflare' ? { identity: { send_email: [{ name: 'SEND_EMAIL' }] } } : {};
+  let restorePoint: RestorePoint | undefined;
+  const baseRecord = (): DeploymentRecord => ({
+    prefix: o.prefix, name, domain: domain ?? null, adminEmail: adminEmail!, requireAdmin2fa, accountId, urls,
+    signupMode, requireEmailVerification, defaultLang, passkeys, magicLink, brand, mail,
+  });
+  const configs = Object.fromEntries(WORKERS.map((w) => [w.key, generate(w, o.prefix, { names, d1Ids, urls, domain, vars, extra })])) as Record<WorkerKey, string>;
   console.log(`\n  generated ${Object.values(configs).join(', ')}`);
 
   if (!o.dryRun) {
+    if (existingDbs.length) {
+      step('Restore point (D1 Time Travel)');
+      const bookmarks: Record<string, string> = {};
+      for (const db of existingDbs) {
+        const b = await currentBookmark(db);
+        if (b) bookmarks[db] = b;
+      }
+      if (Object.keys(bookmarks).length) {
+        restorePoint = { at: new Date().toISOString(), fromVersion: record?.version, fromCommit: record?.commit, bookmarks };
+        // Persisted before the migrations run, so it survives a failed upgrade.
+        writeRecord({ ...(record ?? baseRecord()), restorePoints: restorePoint });
+        printRestorePoint(restorePoint);
+      }
+    }
     step('Migrations');
     for (const db of [names.platformDb, names.ingestDb]) {
-      await wrangler(['d1', 'migrations', 'apply', db, '--remote', '-c', configs.api], { env: accountEnv });
+      try {
+        await wrangler(['d1', 'migrations', 'apply', db, '--remote', '-c', configs.api], { env: accountEnv });
+      } catch (e) {
+        if (restorePoint) {
+          console.error(`\nMigration of ${db} failed. The databases can be restored to the state before this upgrade:`);
+          printRestorePoint(restorePoint, console.error);
+        }
+        throw e;
+      }
     }
     step('Storage bucket CORS (presigned browser uploads)');
     const tmp = mkdtempSync(path.join(tmpdir(), 'platform-deploy-'));
@@ -293,7 +462,7 @@ async function main() {
     secrets.identity = {
       SETUP_TOKEN: setupToken,
       ...(existing.has('AUTH_SECRET') ? {} : { AUTH_SECRET: randomSecret() }),
-      ...pick('RESEND_API_KEY', 'TURNSTILE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'APPLE_CLIENT_ID', 'APPLE_CLIENT_SECRET'),
+      ...pick('RESEND_API_KEY', 'SMTP_PASSWORD', 'TURNSTILE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'APPLE_CLIENT_ID', 'APPLE_CLIENT_SECRET'),
     };
     secrets.api = {
       ...(env('R2_ACCESS_KEY_ID') && env('R2_SECRET_ACCESS_KEY')
@@ -307,7 +476,14 @@ async function main() {
   const build = spawnSync('pnpm', ['--filter', '@z-cloudbase/console', 'build'], {
     cwd: ROOT,
     stdio: 'inherit',
-    env: { ...process.env, VITE_ISSUER: urls.identity, VITE_API_ORIGIN: urls.api, VITE_PLATFORM_NAME: name },
+    env: {
+      ...process.env,
+      VITE_ISSUER: urls.identity,
+      VITE_API_ORIGIN: urls.api,
+      VITE_PLATFORM_NAME: name,
+      VITE_BRAND_LOGO_URL: brand.logoUrl ?? '',
+      VITE_BRAND_PRIMARY_COLOR: brand.primaryColor ?? '',
+    },
   });
   if (build.status !== 0) fail('console build failed');
 
@@ -338,7 +514,10 @@ async function main() {
   step('Install (console client, first administrator)');
   const adminPassword = generatePassword();
   const installed = await installPlatform(urls.identity, setupToken, { adminEmail, adminPassword, consoleRedirectUris: [`${urls.console}/`] });
-  const r: DeploymentRecord = { prefix: o.prefix, name, domain: domain ?? null, adminEmail, requireAdmin2fa, accountId, urls };
+  const r: DeploymentRecord = {
+    ...baseRecord(), version: VERSION, commit: gitCommit(), deployedAt: new Date().toISOString(),
+    ...(restorePoint ? { restorePoints: restorePoint } : record?.restorePoints ? { restorePoints: record.restorePoints } : {}),
+  };
   writeRecord(r);
 
   console.log(`\nDone. "${name}" is deployed:\n  console   ${urls.console}\n  identity  ${urls.identity}\n  api       ${urls.api}`);
@@ -349,11 +528,18 @@ async function main() {
   }
   for (const own of Object.values(secrets)) for (const k of Object.keys(own ?? {})) configured.add(k);
   const missing = [
-    !configured.has('RESEND_API_KEY') && 'email (RESEND_API_KEY + EMAIL_FROM): user sign-up and password reset mails cannot be sent',
+    !mailReady(mail, configured) &&
+      `email (EMAIL_FROM + EMAIL_TRANSPORT resend | smtp | cloudflare): verification, password reset, magic links and invitation mails cannot be sent${
+        requireEmailVerification ? '; with REQUIRE_EMAIL_VERIFICATION=true email sign-up is unavailable (or deploy with --require-email-verification false)' : ''
+      }`,
     !configured.has('TURNSTILE_SECRET_KEY') && 'Turnstile (TURNSTILE_SITE_KEY + TURNSTILE_SECRET_KEY): failed sign-ins are only rate limited',
     !configured.has('R2_SECRET_ACCESS_KEY') && 'storage presigning (R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY): file uploads / downloads are unavailable',
     !configured.has('CF_ANALYTICS_API_TOKEN') && 'analytics queries (CF_ANALYTICS_API_TOKEN): events are collected but the console cannot chart them',
   ].filter(Boolean);
+  if (restorePoint) {
+    console.log('\nD1 restore point (taken before this upgrade\'s migrations):');
+    printRestorePoint(restorePoint);
+  }
   if (missing.length) console.log(`\nNot configured yet (set the variables and run again):\n${missing.map((m) => `  - ${m}`).join('\n')}`);
 }
 

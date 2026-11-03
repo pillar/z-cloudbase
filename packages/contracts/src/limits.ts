@@ -47,3 +47,39 @@ export const AUTH_FAILURE_WINDOW_S = 15 * 60;
 export const DEFAULT_DAILY_UPLOAD_BYTES = 1024 * 1024 * 1024;
 /** One-time export download link lifetime. */
 export const EXPORT_LINK_TTL_S = 15 * 60;
+
+// v3.1 analytics (PRD §19.6, §21.7–21.9).
+/** Events packed into one queue message; with the consumer's max_batch_size 10 this keeps ≤ 250 AE data points per invocation. */
+export const EVENTS_PER_QUEUE_MESSAGE = 25;
+/** Queue messages are capped at 128 KB; stay well below. */
+export const EVENTS_QUEUE_MESSAGE_MAX_BYTES = 100 * 1024;
+/** Properties JSON kept in `event_rows` (explorer); larger ones are only in the archive. */
+export const EVENT_ROW_PROPERTIES_MAX_BYTES = 1024;
+export const USER_PROPERTIES_MAX_KEYS = 20;
+export const USER_PROPERTIES_MAX_BYTES = 2048;
+export const USER_PROPERTY_VALUE_MAX_CHARS = 256;
+export const USER_PROPERTY_KEY_RE = /^[A-Za-z0-9_]{1,64}$/;
+/** Default / bounds of ANALYTICS_RETENTION_DAYS (event_rows, actor tables, query window). */
+export const ANALYTICS_RETENTION_DAYS_DEFAULT = 90;
+export const ANALYTICS_RETENTION_DAYS_MAX = 90;
+/** Default / bounds of ARCHIVE_RETENTION_DAYS (R2 raw event archive). */
+export const ARCHIVE_RETENTION_DAYS_DEFAULT = 90;
+export const ARCHIVE_RETENTION_DAYS_MAX = 3650;
+export const ANALYTICS_CUSTOM_DIMENSIONS_MAX = 3;
+export const FUNNEL_MIN_STEPS = 2;
+export const FUNNEL_MAX_STEPS = 5;
+export const FUNNEL_DEFAULT_WINDOW_S = 24 * 3600;
+export const FUNNEL_MAX_WINDOW_S = 30 * 24 * 3600;
+export const RETENTION_MAX_PERIODS = { day: 31, week: 13 } as const;
+export const BREAKDOWN_MAX_ROWS = 50;
+export const EXPLORER_MAX_PAGE = 100;
+export const EXPORT_MAX_DAYS = 31;
+export const EXPORT_MAX_OBJECTS = 2000;
+/** Web SDK `js_error` autocapture: reports per page load. */
+export const WEB_ERRORS_PER_PAGE = 10;
+
+/** A day-count deployment variable within [1, max]; anything unparsable falls back to the default. */
+export function boundedDays(raw: unknown, fallback: number, max: number): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, max) : fallback;
+}

@@ -1,5 +1,5 @@
 // Fixtures for consumer tests: queue batches shaped like the api's messages, seeded platform rows.
-import { newId, type EventInput, type EventQueueMessage, type LogQueueMessage } from '@z-cloudbase/contracts';
+import { newId, type EventContext, type EventInput, type EventQueueMessage, type EventQueueMessageV1, type LogQueueMessage } from '@z-cloudbase/contracts';
 import { createMessageBatch, createExecutionContext, getQueueResult, waitOnExecutionContext } from 'cloudflare:test';
 import { env as baseEnv } from 'cloudflare:workers';
 import worker from '../src/index.ts';
@@ -31,10 +31,32 @@ export function logMessage(product: string, env: string, over: Partial<LogQueueM
   };
 }
 
-export function eventMessage(product: string, env: string, over: Partial<EventInput> & { user_key?: string | null; received?: string } = {}): EventQueueMessage {
-  const { user_key, received, ...event } = over;
+type EventOver = Partial<Omit<EventInput, 'user_id'>> & { user_key?: string | null };
+
+/** v3.1 queue message (several events, server context) as the api sends it. */
+export function eventsMessage(product: string, env: string, events: EventOver[], o: { received?: string; context?: Partial<EventContext>; dimensions?: string[] } = {}): EventQueueMessage {
   return {
-    product_id: product, environment: env, user_key: user_key ?? null, received_at: received ?? now(),
+    v: 2, product_id: product, environment: env, received_at: o.received ?? now(),
+    context: { source: 'client', browser: 'chrome', os: 'macos', device: 'desktop', country: 'DE', ...o.context },
+    dimensions: o.dimensions ?? [],
+    events: events.map(({ user_key, ...event }) => ({
+      user_key: user_key ?? null,
+      event: { event_id: crypto.randomUUID(), event_name: 'page_view', occurred_at: now(), properties: {}, schema_version: 1, ...event },
+    })),
+  };
+}
+
+/** One-event v3.1 message. */
+export function eventMessage(product: string, env: string, over: EventOver & { received?: string } = {}): EventQueueMessage {
+  const { received, ...event } = over;
+  return eventsMessage(product, env, [event], received ? { received } : {});
+}
+
+/** v3.0 single-event message (still accepted after an upgrade). */
+export function legacyEventMessage(product: string, env: string, over: EventOver = {}): EventQueueMessageV1 {
+  const { user_key, ...event } = over;
+  return {
+    product_id: product, environment: env, user_key: user_key ?? null, received_at: now(),
     event: { event_id: crypto.randomUUID(), event_name: 'page_view', occurred_at: now(), properties: {}, schema_version: 1, ...event },
   };
 }

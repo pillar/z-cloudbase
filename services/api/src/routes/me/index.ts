@@ -1,9 +1,9 @@
 import { ApiError, newId, type MeResponse, type SelfServiceRequest, type SelfServiceRequestList } from '@z-cloudbase/contracts';
 import { Hono } from 'hono';
 import type { AppEnv } from '../../context.ts';
-import { auditStatement } from '../../lib/audit.ts';
+import { requestAuditStatement } from '../../lib/audit.ts';
 import { identity } from '../../identity.ts';
-import { withCredential, withUser } from '../../middleware/auth.ts';
+import { denyImpersonation, withCredential, withUser } from '../../middleware/auth.ts';
 
 // Self-service for the end user of ONE product. There is deliberately no endpoint listing the
 // user's other products, nor account-level deletion / export: both act across products and live on
@@ -45,7 +45,7 @@ meRoutes.get('/', async (c) => {
 });
 
 /** Leave this product: tokens first (retryable if the RPC fails), then membership + cleanup request + audit atomically. */
-meRoutes.delete('/membership', async (c) => {
+meRoutes.delete('/membership', denyImpersonation(), async (c) => {
   const cred = c.get('cred');
   const { userId } = c.get('user')!;
   try {
@@ -62,9 +62,9 @@ meRoutes.delete('/membership', async (c) => {
     c.env.DB.prepare(
       `INSERT INTO deletion_requests (id, user_id, kind, scope, product_id, status, requested_at, due_at) VALUES (?, ?, 'delete', 'product', ?, 'pending', ?, ?)`,
     ).bind(requestId, userId, cred.productId, now, now),
-    auditStatement(c.env.DB, {
+    requestAuditStatement(c, {
       actorType: 'user', actorId: userId, action: 'me.membership.leave', productId: cred.productId, env: cred.env,
-      targetType: 'deletion_request', targetId: requestId, requestId: c.get('requestId'),
+      targetType: 'deletion_request', targetId: requestId,
     }),
   ]);
   return c.body(null, 204);

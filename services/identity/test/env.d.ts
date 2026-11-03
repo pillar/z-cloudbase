@@ -8,3 +8,10 @@ declare global {
     }
   }
 }
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    /** Fake SMTP peer of test-node/smtp-peer.ts: SMTP port and the URL of its recorded sessions. */
+    smtpPeer: { port: number; transcripts: string };
+  }
+}

@@ -100,6 +100,12 @@ describe('handleRedirectCallback', () => {
     expect(session.map.size).toBe(0);
   });
 
+  it('exposes the impersonating owner as user.actor during a support session (act claim)', async () => {
+    const { auth, roundTrip, idp } = await setup();
+    idp.actor = 'usr_owner';
+    expect(await auth.handleRedirectCallback(await roundTrip())).toEqual({ id: idp.userId, actor: 'usr_owner' });
+  });
+
   it('keeps unrelated query parameters when cleaning the URL', async () => {
     const { auth, roundTrip } = await setup();
     const cb = new URL(await roundTrip());

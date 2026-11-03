@@ -10,6 +10,10 @@ export const ERROR_STATUS = {
   forbidden_product: 403,
   product_disabled: 403,
   membership_required: 403,
+  /** The user is banned platform-wide (PRD §21.5.1); access tokens issued before the ban stop working. */
+  user_banned: 403,
+  /** A support impersonation token (`act` claim) on an action reserved for the user (PRD §21.5.2). */
+  impersonation_restricted: 403,
   not_found: 404,
   identity_conflict: 409,
   idempotency_conflict: 409,

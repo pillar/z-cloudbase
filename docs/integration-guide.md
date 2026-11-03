@@ -1,6 +1,6 @@
 # 产品接入教程（给产品项目的 AI 开发者）
 
-> 版本：SDK 0.1.0 · 更新于 2026-11-03
+> 版本：SDK 0.2.0 · 更新于 2026-11-04
 > 本文是产品接入本平台（z-cloudbase 的一个自部署实例）的唯一说明。文中的 `https://id.example.com` / `https://api.example.com` / `https://console.example.com` 是占位符，换成你们部署的地址（`pnpm platform:deploy` 结束时打印，或问平台管理员）。按「执行清单」的顺序做，每一步都有可验证的结果。遇到与本文不符的行为，先记录请求的 `x-request-id` 和错误码，再向平台方反馈，不要自行绕过。
 
 ## 0. 执行清单（AI 按顺序完成）
@@ -60,15 +60,15 @@ SDK 还没发布到 npm，用平台方提供的 tgz 包：
 
 ```sh
 # 平台方在 z-cloudbase 仓库根目录执行，产物在 dist-sdk/
-pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.1.0.tgz, dist-sdk/z-cloudbase-server-0.1.0.tgz
+pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.2.0.tgz, dist-sdk/z-cloudbase-server-0.2.0.tgz
 
 # 在你的产品仓库：把 tgz 放进 vendor/ 并提交到你的仓库（保证 CI 可重复安装）
 mkdir -p vendor && cp <平台仓库>/dist-sdk/z-cloudbase-*.tgz vendor/
-npm i ./vendor/z-cloudbase-web-0.1.0.tgz          # 前端
-npm i ./vendor/z-cloudbase-server-0.1.0.tgz       # 后端（Node 20+ / Cloudflare Workers / 任何有 fetch 的运行时）
+npm i ./vendor/z-cloudbase-web-0.2.0.tgz          # 前端
+npm i ./vendor/z-cloudbase-server-0.2.0.tgz       # 后端（Node 20+ / Cloudflare Workers / 任何有 fetch 的运行时）
 ```
 
-- 两个包都是 ESM，自带 TypeScript 类型；`@z-cloudbase/web` 只依赖 `jose`，压缩后约 34 KB（gzip 13 KB）。
+- 两个包都是 ESM，自带 TypeScript 类型；`@z-cloudbase/web` 只依赖 `jose`，压缩后约 37 KB（gzip 14 KB，含 jose；不用的模块可按 `@z-cloudbase/web/analytics` 等子路径单独引入）。
 - 升级：换掉 `vendor/` 里的 tgz 后重新 `npm i`。
 - 不用 JS 的客户端（原生 App、其他语言后端）：直接调 HTTP API（第 6 节）。
 
@@ -87,7 +87,7 @@ export const platform = createClient({
   publishableKey: 'pk_dev_xxxxxxxx',
   redirectUri: `${location.origin}/`,          // 必须是控制台登记过的回调地址
   storage: localStorage,                       // 见下方说明
-  autocapture: { pageViews: true, sessions: true }, // 可选：自动 page_view / session_start
+  autocapture: { pageViews: true, sessions: true }, // 可选，见 4.6
 });
 ```
 
@@ -119,7 +119,9 @@ logoutButton.onclick = async () => { await platform.auth.signOut(); render(null)
 platform.auth.onAuthStateChange((user) => render(user ? 'signed-in' : null));
 ```
 
-- 登录页由平台提供（邮箱+密码、注册、找回密码），你的产品**不要**自己做密码表单，也不要收集密码。
+- 登录页由平台提供（邮箱+密码、注册、找回密码；部署启用时还有 Passkey、邮件登录链接、Google / Apple），你的产品**不要**自己做密码表单，也不要收集密码。所有方式登录后都回到同一个 `redirectUri`，产品代码不需要区分。
+- 登录页按浏览器语言显示中文或英文，页面上可以切换；要强制语言，可把用户带到 `https://id.example.com/login?lang=zh`（或 `en`），选择会记住。
+- 部署的注册模式（PRD §21.2）决定新用户能否注册：`open` 任何人可注册；`invite` 只有收到平台邀请的人能注册；`closed` 不再创建新账号。后两种模式下，没有账号的用户会停在登录页，产品应提示「请联系平台管理员获取邀请」。
 - 回调页可以就是首页，关键是它要处理 `?code=`。
 
 ### 4.3 游客模式（游戏等「先玩后注册」的产品）
@@ -136,6 +138,7 @@ if (!(await platform.auth.getUser())) {
 - **升级为正式账号**：把用户带到 `https://id.example.com/link`（新标签页或跳转），用户设置邮箱+密码后，`user_id` 和所有产品数据**保持不变**。回来后调用一次 `platform.auth.signInWithRedirect()`（SSO，无需输入）刷新 token，`getUser().anonymous` 即为 `false`。
 - 游客 30 天不活跃会被平台回收；在游戏里提示用户及时绑定邮箱。
 - 产品可见性必须是「公开」，否则游客无法自动加入。
+- 只有注册模式为 `open` 的部署允许新游客；`invite` / `closed` 下 `/guest` 返回 403（`details.reason = "signup_closed"`），已有会话的用户不受影响。游戏应在这种情况下改走普通登录（`signInWithRedirect()`）。
 
 ### 4.4 当前用户
 
@@ -179,7 +182,38 @@ platform.analytics.reset();     // 退出登录时调用
 - 属性：最多 50 个键、序列化后 ≤ 8 KB；值只能是字符串（≤1024）/数字/布尔/null。不要放邮箱、手机号、token 等个人或敏感信息。
 - SDK 自动批量发送（默认每 5 秒，页面隐藏 / 关闭时也会发送），自动去重（同一 `event_id` 24 小时内只计一次）。
 - 未在控制台登记 schema 的事件：dev/staging 正常接收，prod 按环境设置的「未知事件」策略处理。
-- 报表在控制台「数据分析」查看（日活、事件量、热门事件），约 1–2 分钟延迟。
+- 报表在控制台「数据分析」查看（概览、漏斗、留存、分组、事件明细、导出），约 1–2 分钟延迟。
+- 浏览器 / 系统 / 设备类型和国家由平台从请求推断，**不要**自己放进属性（放了也不会被当成这些维度）。
+
+**自动采集**（`createClient({ autocapture: {...} })`，全部默认关闭）：
+
+| 选项 | 事件 | 说明 |
+|---|---|---|
+| `pageViews: true` | `page_view` | 属性 `path`、`referrer`、`title`；0.2.0 起 `path` / `referrer` 不含查询串（`#/` 开头的 hash 路由保留） |
+| `sessions: true` | `session_start` | 30 分钟无事件后换新 `session_id` |
+| `errors: true` | `js_error` | 未捕获异常与未处理的 Promise 拒绝：`message`、`type`、`stack`（前 1000 字符）、`source`、`line`、`col`、`path`；屏蔽 token、去掉 URL 查询串；同一错误每页只报一次，每页最多 10 条 |
+| `webVitals: true` | `web_vital` | `name`（LCP / INP / CLS / FCP / TTFB）、`value`（毫秒，CLS 无单位）、`rating`；页面隐藏时每个指标报一次。INP 是本页最慢一次交互（近似值） |
+| `clicks: true` 或 `'attribute'` | `element_click` | 链接、按钮和带 `data-zcb-track="名字"` 的元素：`tag`、`selector`、`text`（≤ 64 字符）、`href`、`label`。`'attribute'` 只采集带属性的元素；祖先带 `data-zcb-no-track` 的不采集；**从不读取输入框的值** |
+
+**用户同意**：
+
+```ts
+platform.analytics.optOut();      // 用户拒绝：清空待发事件和匿名 ID，之后 track / 自动采集都不发送；选择会记住
+platform.analytics.optIn();       // 用户同意
+platform.analytics.hasOptedOut(); // 当前状态
+// 需要「先征得同意再采集」时：createClient({ ..., analytics: { consent: 'denied' } })，用户同意后调 optIn()
+```
+
+**用户属性**（只在本产品本环境可见，其他产品看不到）：
+
+```ts
+await platform.analytics.setUserProperties({ plan: 'pro', level: 12 }); // 需已登录；值为 null 表示删除该键
+platform.analytics.identify({ plan: 'pro' });                            // 登录后关联用户并顺便设置属性（不抛错）
+```
+
+- 键 `[A-Za-z0-9_]`，≤ 64 字符；值为标量，字符串 ≤ 256 字符；每个用户最多 20 个键、共 2 KB。超出返回 `payload_too_large`，已有属性不变。
+- 游客（匿名访客）没有用户属性，需要时放在事件属性里。
+- 用于控制台漏斗 / 留存的「用户属性」筛选，和事件明细里按用户查看。
 
 ### 4.7 前端错误上报
 
@@ -211,6 +245,7 @@ try { … } catch (e) {
 | `unauthenticated` / `invalid_token` / `token_expired` | 未登录或登录失效 → 调 `signInWithRedirect()` |
 | `membership_required` | 受限产品且用户不是成员 → 提示无权限 |
 | `product_disabled` | 产品被平台停用 → 显示维护提示 |
+| `impersonation_restricted` | 代登录（平台支持人员）期间不允许的操作，如退出产品、删除文件 → 提示“支持会话中不可用” |
 | `forbidden` / `forbidden_product` | 无权访问该资源 |
 | `validation_failed` / `invalid_request` | 参数不合法，修代码 |
 | `not_found` | 资源不存在（或不属于当前用户，平台不区分） |
@@ -243,14 +278,64 @@ claims.anon;  // 是否游客
 
 本地验签（只在首次 / 密钥轮换时拉取一次 JWKS），不调平台 API。别的产品或别的环境的 token 一律校验失败。
 
+**代登录（平台支持人员以用户身份排查问题）**：平台 owner 可以在控制台发起有时限（最长 60 分钟）、全程审计的代登录。此期间签发的 token 带 RFC 8693 `act` 声明：`claims.act = { sub: '<owner 的 user_id>' }`（前端 `onAuthStateChange` / `handleRedirectCallback` 返回的用户对象相应地有 `actor` 字段）。`claims.sub` 仍是被代登录的用户。产品决定如何对待：
+
+```ts
+if (claims.act) {
+  // 例：禁止支付、提现、删除数据等敏感操作；或全部拒绝
+  return res.status(403).json({ error: 'not allowed during a support session' });
+}
+```
+
+平台自己已保证：代登录会话不能进入控制台，也不能修改该用户的密码、邮箱、登录方式、二次验证，不能导出或删除账号；只能进入用户自己登录过的产品环境（不会替用户加入新产品，也不会触发 `user.joined`）；带 `act` 的 token 调用退出产品（`DELETE /v1/me/membership`）、删除存储对象时返回 403 `impersonation_restricted`，读取、上传和事件上报照常。用户被平台封禁后，已签发的 access token 调用平台 API 返回 403 `user_banned`，refresh 失败（`invalid_grant`），重新登录会被拒绝；你的后端用 `verifyToken` 本地验签时仍会在 token 剩余的最长 15 分钟内通过——需要立即生效时订阅下面的 `user.banned` Webhook。
+
+### 5.4 Webhook（平台推送用户事件）
+
+在控制台「产品 → Webhook」为某个环境添加端点：URL 必须是 `https://`（只有 `dev` 环境允许 `http://localhost`），不能指向内网 / 回环地址；勾选要订阅的事件；保存后签名密钥 `whsec_…` 只显示一次，放进服务端环境变量。
+
+| 事件 | 何时 | `data` |
+|---|---|---|
+| `user.joined` | 用户第一次在这个产品环境完成登录授权 | `{ user_id, anonymous, first_seen_at }` |
+| `user.upgraded` | 游客绑定了第一种登录方式（`user_id` 不变） | `{ user_id, provider }` |
+| `user.deleted` | 删除完成：`scope: "account"` 用户删除了平台账号；`"product"` 用户退出了本产品且平台数据已清理 | `{ user_id, scope }` |
+| `user.banned` / `user.unbanned` | 平台封禁 / 解封（含到期自动解封，`reason: "expired"`） | `{ user_id, expires_at }` / `{ user_id, reason }` |
+
+请求体统一为 `{ id, type, timestamp, product_id, env, data }`，不含邮箱等个人信息。收到 `user.deleted` 时删除你那边该用户的业务数据。
+
+```ts
+import { verifyWebhook } from '@z-cloudbase/server';
+
+// 必须用原始请求体验签，验签通过后再解析
+app.post('/webhooks/platform', express.text({ type: '*/*' }), async (req, res) => {
+  let event;
+  try {
+    event = await verifyWebhook({ secret: process.env.PLATFORM_WEBHOOK_SECRET!, headers: req.headers, body: req.body });
+  } catch {
+    return res.sendStatus(401);
+  }
+  if (await alreadyProcessed(event.id)) return res.sendStatus(204); // 至少一次投递：按 event.id 去重
+  if (event.type === 'user.deleted') await deleteBusinessData(event.data.user_id);
+  res.sendStatus(204);
+});
+```
+
+- 签名遵循 [Standard Webhooks](https://www.standardwebhooks.com/)：`webhook-id`、`webhook-timestamp`、`webhook-signature`（`v1,` + HMAC-SHA256），任何语言都可以按该规范自行验证；时间戳与当前时间相差超过 5 分钟视为重放。
+- 只有 2xx 算成功；10 秒超时，不跟随重定向。失败后按 15 分钟、30 分钟、1、2、4、8、12 小时重试，共 8 次（约 28 小时）后放弃。尽快返回 2xx，耗时处理放到队列里。
+- 轮换密钥后，旧密钥还会并行签名 24 小时（签名头里有两个签名），在这段时间内更新环境变量即可。
+- 控制台可「发送测试」（`webhook.test` 事件）并查看最近 100 次投递记录（状态码、耗时、错误；2xx 记录响应前 256 字符，失败只记状态行）。
+
 ### 5.2 服务端日志与事件
 
 ```ts
 platform.logs.info('order paid', { order_id: 'o_123', amount: 30 }, { request_id: reqId });
 platform.logs.error('payment webhook failed', { provider: 'x' });
-platform.analytics.trackServerEvent('purchase', { amount: 30 }, { eventId: orderId }); // eventId 用业务 ID 可防重复计数
+platform.analytics.track('purchase', { amount: 30 }, { eventId: orderId, userId: claims.sub }); // eventId 用业务 ID（UUID）可防重复计数
+await platform.analytics.setUserProperties(claims.sub, { plan: 'pro' });
 await platform.flush(); // 请求结束前调用；Cloudflare Workers 里用 ctx.waitUntil(platform.flush())
 ```
+
+- `userId` 可选：只接受在本产品有有效成员关系的用户（通常就是 `verifyToken` 得到的 `sub`），否则该条事件被拒绝（`membership_required`）。平台只保存它在本产品下的假名，不保存原始 ID。`trackServerEvent` 是 `track` 的旧名，仍可用。
+- 服务端事件没有浏览器 / 设备 / 国家维度（服务器的请求不代表用户的设备）。需要前端的匿名 ID 时，把它作为 `anonymousId` 传入。
 
 日志属性中的 `password`、`secret`、`token`、`authorization`、`cookie`、`api_key` 等字段会被自动脱敏；仍然不要主动记录个人信息。
 
@@ -281,7 +366,8 @@ const { url } = await platform.storage.getDownloadUrl(obj.id);
 | `POST /v1/storage/downloads` | 同上 | `{ object_id, ttl_seconds? }` → 签名下载地址 |
 | `GET /v1/storage/objects?bucket=&cursor=&limit=` | 同上 | 列出文件 |
 | `DELETE /v1/storage/objects/{id}` | 同上 | 删除 |
-| `POST /v1/events/batch` | pk（可带用户 token）或 sk(`events:write`) | `{ events: [{ event_id(uuid), event_name, occurred_at(ISO), properties?, anonymous_id?, session_id? }] }`，≤100 条 / 256 KB |
+| `POST /v1/events/batch` | pk（可带用户 token）或 sk(`events:write`) | `{ events: [{ event_id(uuid), event_name, occurred_at(ISO), properties?, anonymous_id?, session_id?, user_id? }] }`，≤100 条 / 256 KB；`user_id` 只允许 sk，且必须是本产品成员（否则该条 `membership_required`）；pk 带 `user_id` 的事件被拒（`user_id_not_allowed`） |
+| `POST /v1/events/user-properties` | pk + 用户 token，或 sk(`events:write`) | `{ properties: {k: 标量或 null}, user_id? }`（`user_id` 仅限 sk 且必填）→ `{ properties }`（合并后的全部属性） |
 | `POST /v1/logs/batch` | pk 或 sk(`logs:write`) | `{ logs: [{ level, timestamp, message, attributes?, request_id? }] }`，≤100 条 / 512 KB |
 
 用户 token 的获取走标准 OIDC 授权码 + PKCE（S256）：授权端点、token 端点见 `https://id.example.com/.well-known/openid-configuration`；`client_id` = `{product_id}.{env}`；必须带 `resource=urn:platform:{product_id}.{env}`；scope `openid offline_access`。access token 15 分钟，refresh token 30 天且每次使用都会轮换（旧的立即失效，重放会吊销整组）。
@@ -295,6 +381,8 @@ const { url } = await platform.storage.getDownloadUrl(obj.id);
 | access token / refresh token | 15 分钟 / 30 天（轮换） |
 | 上传签名 URL | 10 分钟有效 |
 | 事件时间 | `occurred_at` 不早于 7 天前、不晚于 5 分钟后 |
+| 用户属性 | 每用户每产品环境 ≤ 20 个键、≤ 2 KB |
+| 分析数据保留 | 默认 90 天（部署配置）；原始事件归档默认 90 天，控制台可导出 NDJSON / CSV（单次 ≤ 31 天） |
 
 ## 8. 验收清单（接入完成后逐项确认并报告）
 
@@ -307,10 +395,13 @@ const { url } = await platform.storage.getDownloadUrl(obj.id);
 - [ ] （错误上报）故意抛一个错误，控制台「日志」能查到。
 - [ ] （存储）上传 → 列表 → 下载内容一致 → 删除后下载地址失效。
 - [ ] 仓库与前端产物中搜索不到 `sk_`。
+- [ ] （Webhook）控制台「发送测试」后，你的接收端用 `verifyWebhook` 验签通过；改动请求体后验签失败。
+- [ ] （代登录）决定并实现带 `act` 声明的 token 在你的后端如何处理（至少禁止敏感操作）。
 
 ## 9. 当前限制（请告知人类负责人）
 
-- 登录方式取决于部署配置：游客始终可用；邮箱+密码注册需要部署方配置邮件服务（验证邮件）；Google / Apple 需部署方配置凭据，且尚未经过真实供应商验证。
+- 登录方式取决于部署配置：游客只在注册模式为 `open` 时可用；邮箱+密码注册默认需要部署方配置邮件服务（验证邮件，Resend / SMTP / Cloudflare Email Service）；邮件登录链接只在配置了邮件时出现；Passkey 默认启用；Google / Apple 需部署方配置凭据。真实邮件投递、真实 Passkey 设备与真实 Google / Apple 尚未经过远程验证（本地用替身测试）。
 - 服务端渲染应用的「BFF 登录」（`platform.bff(...)`）需要机密客户端，控制台暂不支持创建，暂不可用；请用前端登录 + 后端 `verifyToken`。
 - 原生 App（系统浏览器 + 自定义 scheme 回调）尚未验证。
 - SDK 默认 15 秒超时并自动重试可重试错误。
+- 漏斗 / 留存按「用户」（已登录用 user，未登录用设备匿名 ID）计算，登录前后不会自动合并为同一人。生产环境的「分组」报表基于 Analytics Engine，去重用户数在高流量时是近似值。

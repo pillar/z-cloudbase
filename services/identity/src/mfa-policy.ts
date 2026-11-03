@@ -4,20 +4,36 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
 import { writeAudit } from './audit.ts';
+import { PASSKEY_SIGN_IN_PATH } from './passkey.ts';
 
 /** Engine endpoints that verify a second factor (sign-in challenge, enrollment, step-up). */
 export const SECOND_FACTOR_PATHS: ReadonlySet<string> = new Set(['/two-factor/verify-totp', '/two-factor/verify-backup-code']);
 
 /**
- * What the console authorization still needs from this session: TOTP enrollment (`setup`, only when
- * the deployment requires admin 2FA), a second factor on this session (`verify`: TOTP is enabled
- * but this session did not pass it, e.g. a session from social sign-in or from before the
- * enrollment), or nothing.
+ * Sessions created by these engine endpoints passed a second factor: the TOTP / backup-code endpoints,
+ * and a passkey sign-in, which requires user verification and so is multi-factor by itself (PRD §21.3).
  */
-export function consoleMfaStep(s: { user: object; session: object }, requireEnrollment: boolean): 'setup' | 'verify' | null {
-  if (!(s.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled) return requireEnrollment ? 'setup' : null;
-  if (!(s.session as { twoFactorVerifiedAt?: Date | string | null }).twoFactorVerifiedAt) return 'verify';
-  return null;
+export const MFA_SESSION_PATHS: ReadonlySet<string> = new Set([...SECOND_FACTOR_PATHS, PASSKEY_SIGN_IN_PATH]);
+
+/**
+ * What the console authorization still needs from this session: an MFA method (`setup`, only when the
+ * deployment requires admin 2FA and the admin has neither TOTP nor a passkey), a second factor on this
+ * session (`verify`: TOTP code or passkey on the second-factor page; e.g. a session from a password,
+ * social or magic-link sign-in), or nothing. A passkey is optional unless enrollment is required.
+ */
+export function consoleMfaStep(
+  s: { user: object; session: object },
+  requireEnrollment: boolean,
+  hasPasskey = false,
+): 'setup' | 'verify' | null {
+  if ((s.session as { twoFactorVerifiedAt?: Date | string | null }).twoFactorVerifiedAt) return null;
+  if ((s.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled) return 'verify';
+  if (!requireEnrollment) return null;
+  return hasPasskey ? 'verify' : 'setup';
+}
+
+export async function hasPasskey(db: D1Database, userId: string): Promise<boolean> {
+  return Boolean(await db.prepare('SELECT 1 FROM passkey WHERE userId = ? LIMIT 1').bind(userId).first());
 }
 
 export function mfaPolicy(deps: { db: D1Database }) {
@@ -34,7 +50,7 @@ export function mfaPolicy(deps: { db: D1Database }) {
               // A session created by a second-factor endpoint (sign-in challenge passed, or the
               // enrollment that rotates the session) has completed the second factor.
               async before(session, ctx) {
-                if (!SECOND_FACTOR_PATHS.has(ctx?.path ?? '')) return;
+                if (!MFA_SESSION_PATHS.has(ctx?.path ?? '')) return;
                 return { data: { ...session, twoFactorVerifiedAt: new Date() } };
               },
             },

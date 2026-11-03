@@ -20,7 +20,7 @@
     "@z-cloudbase/testing": "workspace:*",
     "vitest": "^4.1.0"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "description": "Server SDK: token verification, logs, events, storage with a service key.",
   "files": [

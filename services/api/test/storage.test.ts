@@ -2,7 +2,7 @@
 import { env } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PNG, call, errCode, pathOf, seedBucket } from './api-helpers.ts';
-import { seedMembership, seedProduct, seedServiceKey, userFor, type SeededEnv } from './helpers.ts';
+import { minter, seedMembership, seedProduct, seedServiceKey, userFor, type SeededEnv } from './helpers.ts';
 
 let a: SeededEnv;
 let b: SeededEnv;
@@ -324,5 +324,22 @@ describe('cross-product isolation', () => {
     const forgedBody = btoa(JSON.stringify(forged)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const res = await call(`/v1/storage/local/upload/${forgedBody}.${sig}`, { method: 'PUT', rawBody: text('hello'), headers: up.headers });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('support impersonation tokens (act claim, PRD §21.5.2)', () => {
+  it('may upload, list and download the user\'s objects, but not delete them (403 impersonation_restricted)', async () => {
+    const token = await (await minter()).mint({ productId: a.productId, env: a.env, userId: ua.userId, act: { sub: 'usr_support_owner' } });
+    const who: Who = { key: a.publishableKey, token };
+    const id = await uploadBytes(who, text('hello'), { content_type: 'text/plain' });
+    expect((await complete(who, id)).status).toBe(200);
+    expect((await call('/v1/storage/objects?bucket=files', who)).status).toBe(200);
+    expect((await call('/v1/storage/downloads', { ...who, body: { object_id: id } })).status).toBe(200);
+    const del = await call(`/v1/storage/objects/${id}`, { ...who, method: 'DELETE' });
+    expect(del.status).toBe(403);
+    expect(await errCode(del)).toBe('impersonation_restricted');
+    expect(await env.DB.prepare('SELECT status FROM storage_objects WHERE id = ?').bind(id).first()).toEqual({ status: 'available' });
+    // The user's own token still can.
+    expect((await call(`/v1/storage/objects/${id}`, { ...asUserA(), method: 'DELETE' })).status).toBe(204);
   });
 });

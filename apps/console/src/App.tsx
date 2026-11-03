@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Boxes, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { createApiClient } from './api.ts';
 import { clearSession, completeLoginIfCallback, getAccessToken, hasSession, startLogin } from './auth.ts';
 import { PLATFORM_NAME } from './brand.ts';
+import { BrandMark } from './brand-mark.tsx';
 import { readConfig } from './config.ts';
 import { defineMessages, useT } from './i18n.tsx';
+import { Invitations } from './pages/Invitations.tsx';
 import { ProductDetail } from './pages/ProductDetail.tsx';
 import { ProductList } from './pages/ProductList.tsx';
-import { Shell, type Route } from './shell.tsx';
+import { Shell, type PlatformPage, type Route } from './shell.tsx';
 import type { Me } from './types.ts';
 import { AppContext, ErrorBanner, errorText } from './ui.tsx';
 
@@ -36,7 +38,7 @@ const messages = defineMessages({
   },
 });
 
-/** `#/` → products, `#/p/<id>[/<section>]` → product. */
+/** `#/` → products, `#/p/<id>[/<section>]` → product, `#/<platform page>` (e.g. `#/invitations`). */
 function useHashRoute(): Route {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -45,16 +47,16 @@ function useHashRoute(): Route {
     return () => removeEventListener('hashchange', on);
   }, []);
   const m = /^#\/p\/([^/]+)(?:\/([^/]+))?/.exec(hash);
-  return m ? { productId: decodeURIComponent(m[1]!), ...(m[2] ? { section: m[2] } : {}) } : {};
+  if (m) return { productId: decodeURIComponent(m[1]!), ...(m[2] ? { section: m[2] } : {}) };
+  const platform = /^#\/(invitations)$/.exec(hash);
+  return platform ? { platformPage: platform[1] as PlatformPage } : {};
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-muted/40 flex min-h-svh flex-col items-center justify-center gap-6 p-6">
       <div className="flex items-center gap-2 font-semibold">
-        <div className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-md">
-          <Boxes className="size-4" />
-        </div>
+        <BrandMark className="size-7 rounded-md" />
         {PLATFORM_NAME}
       </div>
       {children}
@@ -125,7 +127,13 @@ export function App() {
   return (
     <AppContext.Provider value={{ api, me: state.me }}>
       <Shell route={route} onSignOut={signOut}>
-        {route.productId ? <ProductDetail productId={route.productId} tab={route.section ?? 'settings'} /> : <ProductList />}
+        {route.productId ? (
+          <ProductDetail productId={route.productId} tab={route.section ?? 'settings'} />
+        ) : route.platformPage === 'invitations' ? (
+          <Invitations />
+        ) : (
+          <ProductList />
+        )}
       </Shell>
     </AppContext.Provider>
   );

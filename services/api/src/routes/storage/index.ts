@@ -5,11 +5,11 @@ import {
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { AppEnv } from '../../context.ts';
 import { withIdempotency } from '../../lib/idempotency.ts';
-import { auditStatement } from '../../lib/audit.ts';
+import { requestAuditStatement } from '../../lib/audit.ts';
 import { parseJson, parseWith } from '../../lib/storage/parse.ts';
 import { SNIFF_BYTES, matchesImageSignature } from '../../lib/storage/sniff.ts';
 import { LocalSigner, getSigner, isLocalEnv } from '../../lib/storage/signer.ts';
-import { requireScope, withCredential, withUser } from '../../middleware/auth.ts';
+import { denyImpersonation, requireScope, withCredential, withUser } from '../../middleware/auth.ts';
 
 export const storageRoutes = new Hono<AppEnv>();
 
@@ -231,7 +231,7 @@ storageRoutes.get('/objects', principal('storage:read'), async (c) => {
   return c.json({ objects: page.map(toObject), next_cursor: results.length > q.limit ? page[page.length - 1]!.id : null } satisfies ListObjectsResponse);
 });
 
-storageRoutes.delete('/objects/:id', principal('storage:write'), async (c) => {
+storageRoutes.delete('/objects/:id', principal('storage:write'), denyImpersonation(), async (c) => {
   const row = await findObject(c, c.req.param('id'), 'available');
   const a = actor(c);
   const cred = c.get('cred');
@@ -239,9 +239,9 @@ storageRoutes.delete('/objects/:id', principal('storage:write'), async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE storage_objects SET status = 'deleted', deleted_at = ?, deleted_by = ? WHERE id = ? AND status = 'available'`)
       .bind(Date.now(), a.id, row.id),
-    auditStatement(c.env.DB, {
+    requestAuditStatement(c, {
       actorType: a.type, actorId: a.id, action: 'storage.object.delete', productId: cred.productId, env: cred.env,
-      targetType: 'storage_object', targetId: row.id, requestId: c.get('requestId'),
+      targetType: 'storage_object', targetId: row.id,
       metadata: { bucket: row.bucket, size: row.size, owner_user_id: row.owner_user_id },
     }),
   ]);

@@ -30,7 +30,7 @@ describe('event property schemas', () => {
     expect(body.accepted).toBe(2);
     expect(body.rejected).toEqual([]);
     expect(body.warnings).toEqual([{ index: 1, code: 'schema_violation', message: expect.stringMatching(/plan.*extra: not allowed/) }]);
-    expect(q.bodies).toHaveLength(2);
+    expect(q.events).toHaveLength(2);
   });
 
   it('prod rejects only the violating event, and the rejection does not consume its dedupe slot', async () => {
@@ -42,7 +42,7 @@ describe('event property schemas', () => {
     expect(body.accepted).toBe(1);
     expect(body.rejected).toEqual([{ index: 1, code: 'schema_violation', message: expect.stringContaining('plan') }]);
     expect(body.warnings).toBeUndefined();
-    expect(q.bodies.map((m) => m.event.properties)).toEqual([good]);
+    expect(q.events.map((m) => m.event.properties)).toEqual([good]);
     const fixed = await json(await send(prod.publishableKey, [{ ...violating, properties: good }]));
     expect(fixed).toMatchObject({ accepted: 1, duplicate: 0 });
   });

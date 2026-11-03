@@ -11,18 +11,21 @@
   "dependencies": {
     "@better-auth/core": "1.7.7",
     "@better-auth/oauth-provider": "1.7.7",
+    "@better-auth/passkey": "1.7.7",
     "@better-auth/utils": "0.4.2",
     "@better-fetch/fetch": "1.3.2",
     "@z-cloudbase/contracts": "workspace:*",
     "@z-cloudbase/security": "workspace:*",
+    "@z-cloudbase/webhooks": "workspace:*",
     "better-auth": "1.7.7",
     "better-call": "1.4.0",
     "hono": "^4.13.13",
+    "worker-mailer": "1.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@z-cloudbase/testing": "workspace:*",
     "@cloudflare/vitest-plugin": "^1.3.7",
+    "@z-cloudbase/testing": "workspace:*",
     "jose": "^6.2.12",
     "vitest": "^4.1.0",
     "wrangler": "^4.148.0"
