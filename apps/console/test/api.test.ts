@@ -59,6 +59,11 @@ describe('api client', () => {
     expect(bad.onUnauthorized).not.toHaveBeenCalled();
   });
 
+  it('keeps error.details (e.g. the reason of a forbidden answer)', async () => {
+    const { api } = client(() => json({ error: { code: 'forbidden', message: 'Support sessions require two-factor authentication', request_id: 'req_3', details: { reason: 'mfa_required' } } }, 403));
+    await expect(api.post('/users/usr_1/impersonations', { reason: 'ticket 1234' })).rejects.toMatchObject({ code: 'forbidden', details: { reason: 'mfa_required' } });
+  });
+
   it('sends PUT with a JSON body', async () => {
     const { api, fetchFn } = client(() => json({ dimensions: ['plan'] }));
     expect(await api.put('/products/p/analytics/settings', { dimensions: ['plan'] })).toEqual({ dimensions: ['plan'] });

@@ -6,6 +6,8 @@ export class ApiRequestError extends Error {
     readonly code: string,
     message: string,
     readonly requestId?: string,
+    /** `error.details` of the unified body (e.g. `{ reason: 'mfa_required' }`). */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -49,7 +51,7 @@ export function buildUrl(origin: string, path: string, query?: Query): string {
 export function createApiClient(opts: ApiClientOptions): ApiClient {
   const doFetch = opts.fetch ?? fetch;
 
-  type ErrorBody = { error?: { code?: string; message?: string; request_id?: string } } | null;
+  type ErrorBody = { error?: { code?: string; message?: string; request_id?: string; details?: Record<string, unknown> } } | null;
 
   async function send(method: string, path: string, query?: Query, body?: unknown): Promise<Response> {
     return doFetch(buildUrl(opts.origin, path, query), {
@@ -65,7 +67,7 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
   function fail(res: Response, payload: ErrorBody): never {
     if (res.status === 401) opts.onUnauthorized?.();
     const e = payload?.error;
-    throw new ApiRequestError(res.status, e?.code ?? 'internal', e?.message ?? `Request failed (${res.status})`, e?.request_id);
+    throw new ApiRequestError(res.status, e?.code ?? 'internal', e?.message ?? `Request failed (${res.status})`, e?.request_id, e?.details);
   }
 
   async function request<T>(method: string, path: string, query?: Query, body?: unknown): Promise<T> {
@@ -85,7 +87,6 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
     download: async (path, query) => {
       const res = await send('GET', path, query);
       if (!res.ok) fail(res, (await res.json().catch(() => null)) as ErrorBody);
-      return res.blob();
       return res.blob();
     },
     getText: async (path, query) => {
