@@ -117,7 +117,7 @@ export function Settings({ product, reload }: TabProps) {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="ps-redirects">{t.redirectUris}</Label>
-              <Textarea id="ps-redirects" rows={4} value={redirects} onChange={(e) => setRedirects(e.target.value)} />
+              <Textarea id="ps-redirects" required rows={4} value={redirects} onChange={(e) => setRedirects(e.target.value)} />
               <p className="text-muted-foreground text-sm">{t.redirectUrisHelp}</p>
             </div>
             <div className="grid gap-2">

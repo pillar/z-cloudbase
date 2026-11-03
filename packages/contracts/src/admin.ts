@@ -9,7 +9,8 @@ export const CreateProductRequest = z.object({
   product_id: z.string().regex(PRODUCT_ID_RE),
   name: z.string().min(1).max(100),
   visibility: z.enum(PRODUCT_VISIBILITIES).default('open'),
-  redirect_uris: z.array(z.url()).max(20).default([]),
+  // Every product environment is an OIDC client, and a client needs at least one redirect URI.
+  redirect_uris: z.array(z.url()).min(1, 'At least one redirect URI is required').max(20),
   allowed_origins: z.array(z.url()).max(20).default([]),
 });
 export type CreateProductRequest = z.infer<typeof CreateProductRequest>;
@@ -18,7 +19,7 @@ export const UpdateProductRequest = z.object({
   name: z.string().min(1).max(100).optional(),
   visibility: z.enum(PRODUCT_VISIBILITIES).optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
-  redirect_uris: z.array(z.url()).max(20).optional(),
+  redirect_uris: z.array(z.url()).min(1, 'At least one redirect URI is required').max(20).optional(),
   allowed_origins: z.array(z.url()).max(20).optional(),
 });
 

@@ -150,7 +150,7 @@ function NewProduct({ onCreated }: { onCreated: () => void }) {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="np-redirects">{t.redirectUris}</Label>
-            <Textarea id="np-redirects" rows={2} value={form.redirect_uris} onChange={(e) => setForm({ ...form, redirect_uris: e.target.value })} />
+            <Textarea id="np-redirects" required rows={2} placeholder="https://app.example.com/callback" value={form.redirect_uris} onChange={(e) => setForm({ ...form, redirect_uris: e.target.value })} />
             <p className="text-muted-foreground text-sm">{t.onePerLine}</p>
           </div>
           <div className="grid gap-2">
