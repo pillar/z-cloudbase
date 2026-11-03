@@ -339,6 +339,8 @@ async function main() {
 
   // Both or neither: the testing site key with a real secret would lock users out once a challenge is due.
   if (Boolean(env('TURNSTILE_SITE_KEY')) !== Boolean(env('TURNSTILE_SECRET_KEY'))) fail('set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY together');
+  // The secret stays on the worker across runs, so the site key must too (record); never ship the local testing key.
+  const turnstileSiteKey = env('TURNSTILE_SITE_KEY') ?? record?.turnstileSiteKey ?? '';
   const mail = mailSettings(record?.mail);
   // Registration, language, sign-in methods and branding (PRD §21.2–21.4): flags, else the record, else defaults.
   const signupMode = o.signupMode ?? record?.signupMode ?? 'open';
@@ -384,7 +386,7 @@ async function main() {
       DEPLOY_ENV: 'production',
       PLATFORM_NAME: name,
       REQUIRE_ADMIN_2FA: String(requireAdmin2fa),
-      ...(env('TURNSTILE_SITE_KEY') ? { TURNSTILE_SITE_KEY: env('TURNSTILE_SITE_KEY')! } : {}),
+      TURNSTILE_SITE_KEY: turnstileSiteKey,
       SIGNUP_MODE: signupMode,
       REQUIRE_EMAIL_VERIFICATION: String(requireEmailVerification),
       DEFAULT_LANG: defaultLang,
@@ -409,6 +411,7 @@ async function main() {
   const baseRecord = (): DeploymentRecord => ({
     prefix: o.prefix, name, domain: domain ?? null, adminEmail: adminEmail!, requireAdmin2fa, accountId, urls,
     signupMode, requireEmailVerification, defaultLang, passkeys, magicLink, brand, mail,
+    ...(turnstileSiteKey ? { turnstileSiteKey } : {}),
   });
   const configs = Object.fromEntries(WORKERS.map((w) => [w.key, generate(w, o.prefix, { names, d1Ids, urls, domain, vars, extra })])) as Record<WorkerKey, string>;
   console.log(`\n  generated ${Object.values(configs).join(', ')}`);

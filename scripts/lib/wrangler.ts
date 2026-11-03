@@ -99,6 +99,8 @@ export interface DeploymentRecord {
   magicLink?: boolean;
   brand?: { logoUrl?: string; primaryColor?: string; tagline?: string };
   /** Mail settings that are not secrets (RESEND_API_KEY / SMTP_PASSWORD stay Worker secrets). */
+  /** Public Turnstile site key; kept with the record because TURNSTILE_SECRET_KEY stays on the worker across runs. */
+  turnstileSiteKey?: string;
   mail?: { transport?: 'resend' | 'smtp' | 'cloudflare'; from?: string; smtpHost?: string; smtpPort?: string; smtpUsername?: string };
 }
 
