@@ -31,7 +31,7 @@ packages/sdk-web    @z-cloudbase/web
 packages/sdk-server @z-cloudbase/server
 packages/testing    Mock OIDC Provider、测试夹具
 database/migrations 平台 D1 迁移（Drizzle）
-scripts/            运营脚本（platform-deploy、platform-reset-admin、build-sdk）
+scripts/            运营脚本（platform-deploy、platform-destroy、platform-reset-admin、dev、build-sdk）；scripts/test 用 node --test
 tests/e2e           跨 Worker 端到端、越权测试
 ```
 
@@ -55,10 +55,13 @@ pnpm --filter @z-cloudbase/api test   # 单个包
 pnpm --filter @z-cloudbase/api exec vitest run test/foo.test.ts   # 单个文件
 pnpm --filter @z-cloudbase/api dev    # 单个 Worker 的本地 wrangler dev（identity 8787 / api 8788 / consumer 8789）
 pnpm test:e2e                           # 三个 Worker 在同一个本地进程中运行的端到端测试（约 75 秒，每次使用全新临时状态）
+pnpm dev                                # 本地栈 + 控制台一条命令（状态 .wrangler-state，端口 8787 / 5173，Ctrl-C 停止；首次打印管理员密码）
+pnpm test:scripts                       # scripts/test 的 node:test（destroy 计划与确认、限流命名空间；用假的 wrangler runner，不访问远程）
 pnpm bootstrap:local --persist-to .wrangler-state [--admin-email a@b.c]   # 本地迁移 + 控制台 client + 第一个管理员（随机密码，打印一次）
 pnpm platform:deploy --dry-run [--prefix x --name "Y" --domain z.com]    # 只生成部署配置并构建，不访问远程
 pnpm platform:deploy --admin-email <email> [...]   # 真实部署（远程，需用户授权）
 pnpm platform:reset-admin --email <email> [--disable-2fa]   # 管理员找回密码（远程，需用户授权）
+pnpm platform:destroy --prefix <p> --dry-run   # 打印删除计划（本地）；真实删除需要 --confirm <p> 或交互输入，属远程操作，需用户授权
 pnpm sdk:pack                           # 构建可分发的 SDK：dist-sdk/z-cloudbase-web-<v>.tgz、z-cloudbase-server-<v>.tgz
 ```
 

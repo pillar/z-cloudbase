@@ -18,7 +18,15 @@ Against the local D1 / R2 state in `--persist-to` (`.wrangler-state/` is gitigno
 
 Running it again is safe: the console client's redirect URI is updated, the administrator is left unchanged. Lost the local password? Delete the state directory and bootstrap again.
 
-The printed credentials sign in to the console wherever it points at workers running on this state. There is no single command yet that keeps the local stack running for interactive console use (the e2e suite and this script start and stop it); `pnpm --filter <worker> dev` runs one worker with its own state. TOTP is optional for administrators (`REQUIRE_ADMIN_2FA` in `services/identity/wrangler.jsonc`); an administrator can enable it on the identity domain's `/account` page.
+The printed credentials sign in to the console wherever it points at workers running on this state. To keep the stack running for interactive use, run `pnpm dev` instead (below); `pnpm --filter <worker> dev` runs one worker with its own state. TOTP is optional for administrators (`REQUIRE_ADMIN_2FA` in `services/identity/wrangler.jsonc`); an administrator can enable it on the identity domain's `/account` page.
+
+## One command: `pnpm dev`
+
+```sh
+pnpm dev [--persist-to .wrangler-state] [--port 8787] [--console-port 5173] [--admin-email admin@localhost.test]
+```
+
+Applies the migrations, starts the local stack (below) and the console's Vite dev server pointed at it, creates the first administrator on the first run (random password, printed once) and updates the console's redirect URI on every run. Ports are fixed so the issuer and the redirect URI stay valid between runs; a local `AUTH_SECRET` is kept in `<state>/dev-secrets.json` (mode 600) so the signing keys in the state stay readable after a restart. Ctrl-C stops the stack and the dev server. Delete the state directory to start over.
 
 ## The local stack
 
