@@ -1,12 +1,13 @@
 import { Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import type { Environment } from '@z-cloudbase/contracts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
 import { EmptyState, EnvSelect, Field, ErrorBanner, Loading, Section, useLoad } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { AnalyticsSummary } from '../types.ts';
 import type { TabProps } from './ProductDetail.tsx';
 import { SourceNote, type AnalyticsTabProps } from './analytics/shared.tsx';
@@ -46,6 +47,7 @@ const messages = defineMessages({
     tab_events: '事件明细',
     tab_export: '导出',
     rangeHint: '日期按 UTC；留空时默认最近 7 天，并截到保留期内。',
+    view: '视图',
   },
   en: {
     from: 'From',
@@ -72,6 +74,7 @@ const messages = defineMessages({
     tab_events: 'Events',
     tab_export: 'Export',
     rangeHint: 'UTC dates; empty means the last 7 days, clamped to the retention window.',
+    view: 'View',
   },
 });
 
@@ -90,7 +93,7 @@ type TabId = (typeof TABS)[number];
 
 export function Analytics({ product }: TabProps) {
   const t = useT(messages);
-  const [env, setEnv] = useState<Environment>('prod');
+  const { env, setEnv, envs } = useProductEnv();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [tab, setTab] = useState<TabId>('overview');
@@ -98,7 +101,7 @@ export function Analytics({ product }: TabProps) {
   const [opened, setOpened] = useState<ReadonlySet<TabId>>(new Set(['overview']));
   const p: AnalyticsTabProps = { product, env, from, to };
   const views: Record<TabId, ReactNode> = {
-    overview: <Overview {...p} />,
+    overview: <Overview {...p} active={tab === 'overview'} />,
     funnels: <Funnels {...p} />,
     retention: <Retention {...p} />,
     breakdown: <Breakdown {...p} />,
@@ -113,7 +116,7 @@ export function Analytics({ product }: TabProps) {
   return (
     <>
       <div className="flex flex-wrap items-end gap-3">
-        <EnvSelect labelled value={env} onChange={setEnv} />
+        <EnvSelect labelled value={env} onChange={setEnv} envs={envs} />
         <Field label={t.from} htmlFor="an-from">
           <Input id="an-from" type="date" className="w-40" value={from} onChange={(e) => setFrom(e.target.value)} />
         </Field>
@@ -123,11 +126,18 @@ export function Analytics({ product }: TabProps) {
         <p className="text-muted-foreground pb-2 text-xs">{t.rangeHint}</p>
       </div>
       <Tabs value={tab} onValueChange={open} className="gap-6">
-        <div className="overflow-x-auto">
-          <TabsList>
-            {TABS.map((id) => <TabsTrigger key={id} value={id}>{t[`tab_${id}`]}</TabsTrigger>)}
-          </TabsList>
-        </div>
+        {/* Phones get a select (six tabs do not fit 390 px); wider screens the tab bar. */}
+        <Select value={tab} onValueChange={open}>
+          <SelectTrigger className="w-full sm:hidden" aria-label={t.view}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TABS.map((id) => <SelectItem key={id} value={id}>{t[`tab_${id}`]}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <TabsList className="hidden sm:inline-flex">
+          {TABS.map((id) => <TabsTrigger key={id} value={id}>{t[`tab_${id}`]}</TabsTrigger>)}
+        </TabsList>
         {TABS.filter((id) => opened.has(id)).map((id) => (
           <TabsContent key={id} value={id} forceMount className="space-y-6 data-[state=inactive]:hidden">
             <Suspense fallback={<Loading loading rows={4} />}>{views[id]}</Suspense>
@@ -138,7 +148,8 @@ export function Analytics({ product }: TabProps) {
   );
 }
 
-function Overview({ product, env, from, to }: AnalyticsTabProps) {
+/** `active`: the chart is only mounted while the tab is shown (recharts cannot size itself in a hidden panel). */
+function Overview({ product, env, from, to, active }: AnalyticsTabProps & { active: boolean }) {
   const t = useT(messages);
   const f = useFormat();
   const q = useLoad(
@@ -146,9 +157,10 @@ function Overview({ product, env, from, to }: AnalyticsTabProps) {
     `${product.id}|${env}|${from}|${to}`,
   );
 
+  // Users take the brand accent; events a neutral series color that stays distinct from any brand color.
   const config = {
     users: { label: t.users, color: 'var(--chart-1)' },
-    events: { label: t.events, color: 'var(--chart-2)' },
+    events: { label: t.events, color: 'var(--chart-neutral)' },
   } satisfies ChartConfig;
   const daily = q.data?.daily ?? [];
   const latest = daily.at(-1);
@@ -172,7 +184,7 @@ function Overview({ product, env, from, to }: AnalyticsTabProps) {
           <Section title={t.trendTitle} description={t.trendDescription}>
             {daily.length === 0 ? (
               <EmptyState title={t.noData} />
-            ) : (
+            ) : !active ? null : (
               <ChartContainer config={config} className="aspect-auto h-72 w-full">
                 <AreaChart data={daily} margin={{ left: 4, right: 4 }}>
                   <CartesianGrid vertical={false} />

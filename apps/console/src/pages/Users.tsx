@@ -22,6 +22,7 @@ import type { Impersonation, MembershipRow, UserLookup } from '../types.ts';
 import {
   CopyText, EmptyState, EnvSelect, ErrorBanner, Loading, Section, StatusBadge, common, hasRole, isOwner, useAction, useApp, useConfirm, useLoad,
 } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { TabProps } from './ProductDetail.tsx';
 
 const messages = defineMessages({
@@ -360,7 +361,7 @@ function ExportUsers({ productId, envs }: { productId: string; envs: Environment
   const { api } = useApp();
   const t = useT(messages);
   const f = useFormat();
-  const [env, setEnv] = useState<Environment>(envs[0] ?? 'dev');
+  const { env, setEnv } = useProductEnv();
   const [includeEmail, setIncludeEmail] = useState(false);
   const act = useAction();
   async function run() {

@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../../context.ts';
 import { analyticsQuery } from '../../lib/analytics/index.ts';
-import { searchLogs } from '../../lib/logsearch/index.ts';
+import { decodeLogCursor, searchLogs } from '../../lib/logsearch/index.ts';
 import { authorize } from '../../middleware/auth.ts';
 import { loadEnvId, loadProduct, readQuery } from './util.ts';
 
@@ -97,6 +97,7 @@ const LogsQuery = z.object({
   from: DateTime.optional(),
   to: DateTime.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
+  before: z.string().min(1).max(1100).optional(),
 });
 
 insightRoutes.get('/products/:id/logs', async (c) => {
@@ -108,10 +109,13 @@ insightRoutes.get('/products/:id/logs', async (c) => {
   const from = q.from ? Date.parse(q.from) : now - DAY_MS;
   const to = q.to ? Date.parse(q.to) : now + 1000;
   if (from >= to) throw new ApiError('validation_failed', 'from must be before to');
-  const logs = await searchLogs(c.env, {
+  const before = q.before === undefined ? undefined : decodeLogCursor(q.before);
+  if (before === null) throw new ApiError('validation_failed', 'Invalid before cursor');
+  // Newest first; `next_before` continues with older entries (same filters and window).
+  return c.json(await searchLogs(c.env, {
     productEnvId, from, to, limit: q.limit,
     ...(q.request_id ? { requestId: q.request_id } : {}),
     ...(q.level ? { level: q.level } : {}),
-  });
-  return c.json({ logs });
+    ...(before ? { before } : {}),
+  }));
 });

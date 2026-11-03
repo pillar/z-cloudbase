@@ -5,8 +5,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Admin API (behavior change):** `GET /v1/admin/products/:id/logs` returns entries newest first and pages with a cursor: the response is `{ logs, next_before }`, and `before=<next_before>` fetches the next older page (PRD §4.4). Before, it returned the oldest entries of the window first, without paging, so recent entries could be cut off. The console Logs page shows newest first with "Load older entries".
+
 ### Fixed
 
+- Console Analytics: on phones the view is chosen from a select (the tab bar did not fit 390 px); wide tables show an edge shadow where they scroll; the Overview chart keeps its two series distinguishable with a brand color set (users in the brand color, events in a neutral gray, light and dark); no recharts "width(0) and height(0)" warnings when switching tabs (the chart is mounted only while Overview is shown).
+- Console: a product's sections share one selected environment (default `prod`), remembered per browser and kept in the URL (`#/p/<id>/<section>?env=<env>`); before, Logs, Users export and Webhooks started on `dev` and Analytics on `prod`. Roles that cannot manage or export production see a note instead of a failing button (webhooks, raw event export).
 - Identity pages: engine errors with a known code (wrong password, invalid code, banned, passkey second-factor rules) are shown in the page language; the support-session confirmation page and banner are bilingual and use the shared layout; refused browser navigations (rate limit, actions during a support session) get an HTML error page instead of the JSON body; light/dark styling, styled error alerts, a sign-out button on the account page.
 - Console: an owner without TOTP gets an explanation and a two-factor setup link instead of the raw `mfa_required` error; webhook delivery errors are readable; retention shows `–` for periods that have not started; dialog titles no longer run under the close button on phones; favicon.
 - Admin API: creating or updating a product with no redirect URI is a 400 `validation_failed` (it was a 500 from the identity RPC).

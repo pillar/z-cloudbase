@@ -41,10 +41,10 @@ describe('logs consumer', () => {
     ]);
     const window = { from: Date.parse(at('00:00')), to: Date.parse(at('23:00')) };
     const b = await searchLogs(baseEnv, { productEnvId: 'lc_b.prod', ...window, requestId: 'req_shared' });
-    expect(b.map((r) => r.entry.message)).toEqual(['b log']);
+    expect(b.logs.map((r) => r.entry.message)).toEqual(['b log']);
     const c = await searchLogs(baseEnv, { productEnvId: 'lc_c.prod', ...window, requestId: 'req_shared' });
-    expect(c.map((r) => r.entry.message)).toEqual(['c log']);
-    expect(await searchLogs(baseEnv, { productEnvId: 'lc_other.prod', ...window, requestId: 'req_shared' })).toEqual([]);
+    expect(c.logs.map((r) => r.entry.message)).toEqual(['c log']);
+    expect(await searchLogs(baseEnv, { productEnvId: 'lc_other.prod', ...window, requestId: 'req_shared' })).toEqual({ logs: [], next_before: null });
     // Partitions are physically separate objects.
     expect(await listKeys('logs/lc_b/prod/')).toHaveLength(1);
     expect(await listKeys('logs/lc_c/prod/')).toHaveLength(1);

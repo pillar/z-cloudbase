@@ -31,6 +31,8 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.645 0.246 16.439);
   --chart-5: oklch(0.627 0.265 303.9);
+  /* Second series beside the brand-colored first one: neutral, so it never matches a brand hue. */
+  --chart-neutral: oklch(0.552 0.016 285.938);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
   --sidebar-primary: oklch(0.511 0.262 276.966);
@@ -67,6 +69,7 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.645 0.246 16.439);
   --chart-5: oklch(0.627 0.265 303.9);
+  --chart-neutral: oklch(0.705 0.015 286.067);
   --sidebar: oklch(0.21 0.006 285.885);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.673 0.182 276.935);
@@ -109,6 +112,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-neutral: var(--chart-neutral);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -122,4 +126,17 @@
 @layer base {
   * { @apply border-border outline-ring/50; }
   body { @apply bg-background text-foreground antialiased; font-feature-settings: "cv11", "ss01"; }
+}
+
+/* Wide tables scroll inside their card; an edge shadow shows there is more to either side (pure CSS:
+   the card-colored covers scroll with the content and hide the shadows at the ends). */
+@layer components {
+  [data-slot="table-container"] {
+    background:
+      linear-gradient(to right, var(--card) 40%, transparent) left / 2.5rem 100% no-repeat local,
+      linear-gradient(to left, var(--card) 40%, transparent) right / 2.5rem 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklch, var(--foreground) 18%, transparent), transparent) left / 0.75rem 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklch, var(--foreground) 18%, transparent), transparent) right / 0.75rem 100% no-repeat scroll;
+    overscroll-behavior-x: contain;
+  }
 }
