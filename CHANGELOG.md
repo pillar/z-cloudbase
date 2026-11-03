@@ -18,5 +18,5 @@ First open-source release.
 - Operator scripts: `pnpm platform:deploy` (idempotent install / upgrade), `pnpm platform:reset-admin`, `pnpm bootstrap:local`.
 - Integration guide for product teams (`docs/integration-guide.md`).
 
-[Unreleased]: https://github.com/OWNER/z-cloudbase/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/z-cloudbase/releases/tag/v0.1.0
+[Unreleased]: https://github.com/pillar/z-cloudbase/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/pillar/z-cloudbase/releases/tag/v0.1.0
