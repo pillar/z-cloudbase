@@ -51,9 +51,10 @@ describe('§15-10 logs and browser errors, isolated per product', () => {
       const r = await findLogs(ownerToken, a.prod, rid);
       return r.body.logs.length === 2 ? r.body.logs : null;
     });
-    expect(found.map((l) => l.entry.message)).toEqual(['checkout started', 'payment failed']);
-    expect(found[0]!.source).toBe('server');
-    expect(found[0]!.entry.attributes).toEqual({ order: 42, password: '[REDACTED]', api_key: '[REDACTED]' });
+    // Newest first (same timestamp: later line of the archive object first).
+    expect(found.map((l) => l.entry.message)).toEqual(['payment failed', 'checkout started']);
+    expect(found[1]!.source).toBe('server');
+    expect(found[1]!.entry.attributes).toEqual({ order: 42, password: '[REDACTED]', api_key: '[REDACTED]' });
     // Same request id, other product: nothing; B's admin cannot even ask A.
     expect((await findLogs(ownerToken, b.prod, rid)).body.logs).toEqual([]);
     expect((await findLogs(adminB, a.prod, rid)).status).toBe(403);
