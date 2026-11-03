@@ -18,7 +18,7 @@ export const RATE_LIMITED_PATHS = [
   // Second-factor codes (and enrollment): the engine locks an account only during the sign-in
   // challenge, not when a signed-in session verifies a code (step-up), so limit every attempt.
   '/api/auth/two-factor/*',
-  '/two-factor',
+  // `/two-factor/*` matches `/two-factor` as well in Hono; listing both counted each attempt twice.
   '/two-factor/*',
   '/login',
   // Magic link requests and social sign-in starts from the sign-in page (PRD §21.3). Not `/login/*`:

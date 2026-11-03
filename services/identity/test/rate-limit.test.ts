@@ -46,6 +46,14 @@ describe('auth rate limiting', () => {
     expect(statuses.filter((s) => s === 429)).toHaveLength(5);
   });
 
+  it('counts one attempt once even where two guarded patterns could match the path', async () => {
+    const before = new Map((await env.DB.prepare("SELECT key, count FROM auth_rate_counters WHERE key LIKE 'ip:%'").all<{ key: string; count: number }>()).results.map((r) => [r.key, r.count]));
+    await call('/two-factor', { headers: { 'cf-connecting-ip': ip(), ...solved }, form: { code: '000000' } });
+    const after = (await env.DB.prepare("SELECT key, count FROM auth_rate_counters WHERE key LIKE 'ip:%'").all<{ key: string; count: number }>()).results;
+    const changed = after.filter((r) => r.count !== (before.get(r.key) ?? 0));
+    expect(changed.map((r) => r.count - (before.get(r.key) ?? 0))).toEqual([1]);
+  });
+
   it('stores only hashed keys: neither the IP nor the email appears in the counters', async () => {
     const email = uniqueEmail('hashed');
     const addr = ip();
