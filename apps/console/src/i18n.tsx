@@ -52,6 +52,8 @@ export function useFormat() {
     time: (ms: number | null | undefined) =>
       ms ? new Date(ms).toLocaleString(tag, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–',
     number: (n: number) => n.toLocaleString(tag),
+    /** A 0..1 ratio as a percentage, e.g. 0.4567 → "45.7%". */
+    percent: (ratio: number, digits = 1) => ratio.toLocaleString(tag, { style: 'percent', maximumFractionDigits: digits }),
     bytes: fmtBytes,
   };
 }
