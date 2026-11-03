@@ -902,13 +902,13 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 |---|---|
 | 发起 | 控制台调用 `POST /v1/admin/users/:user_id/impersonations` `{ reason }`（`users:impersonate`，reason 10–500 字符）。服务端检查：调用者已启用 TOTP（否则 403 `forbidden`，`details.reason = "mfa_required"`）；目标存在且未删除（否则 404）、不是平台团队成员、未被封禁、不是自己（否则 409 `conflict`）。成功时创建一条 `pending` 申请（10 分钟内有效；同一 owner 新建申请会取消他之前未开始的申请），写审计 `user.impersonation.request`，返回 `{ id, url, expires_at }` |
 | 确认（“新鲜”的定义） | owner 在浏览器打开身份域的 `url`（`/impersonation/{id}`）。页面只对申请人本人的身份域会话可用，显示目标用户、原因和时长，要求输入当前 TOTP 验证码。“新鲜”= 本次身份域会话在 5 分钟内（§19.4 的再认证窗口）通过了 TOTP；确认表单当场完成这次验证，服务端在创建代登录会话前再次检查 owner 角色、TOTP、目标限制和申请状态。确认表单（`POST /impersonation/{id}/start`）计入认证限流（§19.6，每 IP 10 次 / 分钟）；同一申请累计输错 **5** 次验证码即取消（`status = cancelled`，`end_reason = too_many_attempts`），写审计 `user.impersonation.cancel`（metadata：impersonation_id、reason、failed_attempts），需在控制台重新发起 |
-| 会话 | 引擎为目标用户创建一个新的身份域会话，`impersonatedBy = owner 的 user_id`，有效期固定 **60 分钟**，不续期（不随访问滑动）；浏览器的会话 Cookie 换成该会话，owner 原来的会话令牌存入签名 Cookie，结束时恢复（若仍有效）。写审计 `user.impersonation.start`（actor = owner，target = 用户，metadata：impersonation_id、reason、expires_at） |
-| 产品 token | 代登录会话经 SSO 取得的产品 access token 和 id token 带 RFC 8693 `act` 声明：`"act": { "sub": "<owner 的 user_id>" }`。产品可据此识别或拒绝（见集成教程）。代登录期间签发的 refresh token 只在代登录有效期内可用；结束或到期后，这些 token 一律失效（数据库触发器在会话删除时删除它们；refresh 时也会检查） |
+| 会话 | 引擎为目标用户创建一个新的身份域会话，`impersonatedBy = owner 的 user_id`，有效期固定 **60 分钟**，不续期（不随访问滑动；即使浏览器丢弃了“不记住我”Cookie，会话的 `session.update` 钩子也保持原到期时间）；带 `impersonatedBy` 但没有对应的 active 且未到期代登录记录的会话一律视为无效：任何引擎请求（含身份域页面的会话查询）先删除该会话和 Cookie，不等 cron；浏览器的会话 Cookie 换成该会话，owner 原来的会话令牌存入签名 Cookie，结束时恢复（若仍有效）。写审计 `user.impersonation.start`（actor = owner，target = 用户，metadata：impersonation_id、reason、expires_at） |
+| 产品 token | 代登录会话经 SSO 取得的产品 access token 和 id token 带 RFC 8693 `act` 声明：`"act": { "sub": "<owner 的 user_id>" }`。签发时代登录已不再有效（到期边界）则拒绝签发（`invalid_grant`），不会签出不带 `act` 的 token。产品可据此识别或拒绝（见集成教程）。代登录期间签发的 refresh token 只在代登录有效期内可用；结束或到期后，这些 token 一律失效（数据库触发器在会话删除时删除它们；refresh 时也会检查） |
 | 产品授权范围 | 代登录会话只能授权目标用户**自己登录过**的产品环境（已有 active membership，且 `product_env_users` 有该环境的记录）；其他产品 / 环境一律 `access_denied`。代登录不会替用户加入产品、写入首次进入记录或发出 `user.joined` |
 | 平台 API（带 `act` 的产品 token） | 只读与日常写入照常：`GET /v1/me`、`/v1/me/requests`、存储上传 / 列表 / 下载、事件与日志上报。只允许用户本人执行的操作返回 403 `impersonation_restricted`：退出产品（`DELETE /v1/me/membership`）、删除存储对象（`DELETE /v1/storage/objects/:id`），以及以后新增的会改变账号或成员状态、删除用户数据的接口。在此期间写入的审计记录（actor 仍是该用户）在 `metadata.actor_id` 记下代登录的 owner |
 | 限制 | 代登录会话不能授权控制台 client（`access_denied`），api 也拒绝带 `act` 的控制台 token；不能修改账号安全设置：引擎只放行会话查询、产品授权与同意、token / userinfo / JWKS、退出，其余（改密码、改邮箱、设置密码、绑定 / 解绑登录方式、TOTP、passkey、删除账号、会话管理、登录）一律 403 `IMPERSONATION_RESTRICTED`；身份域用户中心的数据导出、下载、删除申请与绑定表单同样拒绝 |
 | 界面 | 代登录期间，身份域每个页面顶部显示常驻横幅（目标用户、owner、结束时间）和“结束代登录”按钮 |
-| 结束 | 横幅按钮（`POST /impersonation/stop`）或退出登录；到期后由 consumer 的 15 分钟 cron 收尾（会话本身到期即不可用）。写审计 `user.impersonation.stop`，`metadata.end_reason` 为 `stopped` / `signed_out` / `expired` / `target_banned` |
+| 结束 | 横幅按钮（`POST /impersonation/stop`）、退出登录或 OIDC RP 发起的登出（`/oauth2/end-session`，含确认页 `/oauth2/end-session/confirm`）；任何途径删除代登录会话时（引擎 `session.delete` 钩子）都结束对应记录：未到期为 `signed_out`，已到期为 `expired`；到期后由 consumer 的 15 分钟 cron 收尾（会话本身到期即不可用）。写审计 `user.impersonation.stop`，`metadata.end_reason` 为 `stopped` / `signed_out` / `expired` / `target_banned` |
 
 #### 21.5.3 用户导出（产品环境级）
 

@@ -9,6 +9,7 @@ import { env } from 'cloudflare:workers';
 import { decodeJwt } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IdentityRpc } from '../src/index.ts';
+import { actClaimFor } from '../src/user-admin.ts';
 import { setWebhookFetch } from '../src/webhooks.ts';
 import { CookieJar, PASSWORD, auditRows, call, seedProduct, signIn, signUp, uniqueEmail } from './helpers.ts';
 import { CONSOLE, enrollTotp } from './mfa.ts';
@@ -404,6 +405,59 @@ describe('impersonation (PRD §21.5.2)', () => {
     expect((await refresh(P, ENV, tokens.refresh_token!)).status).toBe(400);
     expect((await auditRows('user.impersonation.stop', userId))[0]?.metadata).toMatchObject({ end_reason: 'target_banned' });
     expect(await sessionOf(admin.jar)).toBeNull();
+  });
+});
+
+describe('impersonation session lifetime and ending (PRD §21.5.2)', () => {
+  async function started() {
+    const admin = await owner();
+    const userJar = new CookieJar();
+    const { userId } = await signUp(userJar);
+    await ssoToProduct(userJar, P, ENV);
+    const id = await requestImpersonation(admin.userId, userId);
+    const res = await call(`/impersonation/${id}/start`, { jar: admin.jar, form: { code: await totp(admin.secret) } });
+    expect(res.status).toBe(302);
+    const row = (await env.DB.prepare('SELECT session_id, expires_at FROM impersonations WHERE id = ?').bind(id).first<{ session_id: string; expires_at: number }>())!;
+    return { admin, userId, id, ...row };
+  }
+  const sessionExpiry = async (sessionId: string) => {
+    const r = await env.DB.prepare('SELECT expiresAt FROM session WHERE id = ?').bind(sessionId).first<{ expiresAt: string }>();
+    return r ? new Date(r.expiresAt).getTime() : null;
+  };
+
+  it('is never extended, even when the browser drops the "don\'t remember" cookie', async () => {
+    const { admin, session_id, expires_at } = await started();
+    for (const name of [...admin.jar.cookies.keys()]) if (name.includes('dont_remember')) admin.jar.cookies.delete(name);
+    expect((await sessionOf(admin.jar))?.session.impersonatedBy).toBe(admin.userId);
+    expect(await sessionExpiry(session_id)).toBeLessThanOrEqual(expires_at);
+  });
+
+  it('a session marked as impersonated without an active, unexpired impersonation is refused and deleted', async () => {
+    const { admin, id, session_id } = await started();
+    // E.g. the impersonation ended or expired while the session row survived (cron not run yet).
+    await env.DB.prepare('UPDATE impersonations SET expires_at = ? WHERE id = ?').bind(Date.now() - 1, id).run();
+    expect(await sessionOf(admin.jar)).toBeNull();
+    expect(await sessionExpiry(session_id)).toBeNull();
+    expect((await call('/account', { jar: admin.jar })).headers.get('location') ?? '').toContain('/login');
+  });
+
+  it('the act claim fails closed: no token for a session whose impersonation is no longer active', async () => {
+    const { session_id, id, admin } = await started();
+    expect(await actClaimFor(env.DB, session_id)).toEqual({ act: { sub: admin.userId } });
+    await env.DB.prepare(`UPDATE impersonations SET status = 'ended' WHERE id = ?`).bind(id).run();
+    await expect(actClaimFor(env.DB, session_id)).rejects.toThrow();
+    expect(await actClaimFor(env.DB, 'ses_not_impersonated')).toEqual({});
+  });
+
+  it('RP-initiated logout (end-session) ends the impersonation with end_reason signed_out', async () => {
+    const { admin, userId, id } = await started();
+    const confirm = await call('/api/auth/oauth2/end-session', { jar: admin.jar, headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' } });
+    expect(confirm.status).toBe(200);
+    const done = await call('/api/auth/oauth2/end-session/confirm', { jar: admin.jar, headers: { accept: 'text/html' }, form: { action: 'confirm' } });
+    expect(done.status).toBe(200);
+    expect(await sessionOf(admin.jar)).toBeNull();
+    expect(await env.DB.prepare('SELECT status, end_reason FROM impersonations WHERE id = ?').bind(id).first()).toEqual({ status: 'ended', end_reason: 'signed_out' });
+    expect((await auditRows('user.impersonation.stop', userId))[0]?.metadata).toMatchObject({ impersonation_id: id, end_reason: 'signed_out' });
   });
 });
 

@@ -39,7 +39,7 @@ export function bannedMessage(banExpires: Date | string | null | undefined): str
 export const IMPERSONATION_ALLOWED_PATHS: ReadonlySet<string> = new Set([
   '/get-session', '/sign-out', '/list-accounts', '/ok', '/error',
   '/oauth2/authorize', '/oauth2/continue', '/oauth2/consent', '/oauth2/token', '/oauth2/userinfo', '/oauth2/introspect',
-  '/oauth2/revoke', '/oauth2/end-session', '/oauth2/public-client', '/oauth2/public-client-prelogin',
+  '/oauth2/revoke', '/oauth2/end-session', '/oauth2/end-session/confirm', '/oauth2/public-client', '/oauth2/public-client-prelogin',
   '/jwks', '/jwks.json', '/.well-known/openid-configuration', '/.well-known/oauth-authorization-server',
   '/impersonation/stop',
 ]);
@@ -85,6 +85,33 @@ export async function endImpersonations(
   return results;
 }
 
+/**
+ * RFC 8693 `act` for tokens issued from a session (access and id tokens): `{}` for an ordinary session,
+ * the owner for an active, unexpired impersonation, and an error — no token at all — for an impersonation
+ * session whose impersonation is no longer active (fail closed at the expiry boundary).
+ */
+export async function actClaimFor(db: D1Database, sessionId: string | undefined, now = Date.now()): Promise<{ act?: { sub: string } }> {
+  if (!sessionId) return {};
+  const row = await db.prepare('SELECT actor_id, status, expires_at FROM impersonations WHERE session_id = ? LIMIT 1')
+    .bind(sessionId).first<{ actor_id: string; status: string; expires_at: number | null }>();
+  if (!row) return {};
+  if (row.status === 'active' && (row.expires_at ?? 0) > now) return { act: { sub: row.actor_id } };
+  throw new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'the support session has ended' });
+}
+
+type SessionLike = { id: string; token?: string; impersonatedBy?: string | null; expiresAt?: Date | string };
+
+/** A session row was deleted (sign-out, end-session, stop, expiry clean-up): end its impersonation, if still active. */
+async function endForDeletedSession(db: D1Database, session: SessionLike): Promise<void> {
+  if (!session.impersonatedBy) return;
+  const row = await db.prepare(`SELECT expires_at FROM impersonations WHERE session_id = ? AND status = 'active'`)
+    .bind(session.id).first<{ expires_at: number | null }>();
+  if (!row) return;
+  const expired = (row.expires_at ?? 0) <= Date.now();
+  await endImpersonations(db, { sessionId: session.id }, expired ? 'expired' : 'signed_out',
+    expired ? { type: 'system', id: 'identity' } : { type: 'user', id: session.impersonatedBy });
+}
+
 type HookCtx = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
 function oauthOptions(ctx: HookCtx) {
@@ -96,12 +123,7 @@ const ADMIN_SESSION_COOKIE = 'impersonator_session';
 export function userAdmin(deps: { db: D1Database }) {
   const { db } = deps;
 
-  /** RFC 8693 `act` for tokens issued from an active impersonation session (access and id tokens). */
-  const actClaim = async ({ sessionId }: { sessionId?: string }) => {
-    if (!sessionId) return {};
-    const row = await activeImpersonation(db, sessionId);
-    return row ? { act: { sub: row.actor_id } } : {};
-  };
+  const actClaim = ({ sessionId }: { sessionId?: string }) => actClaimFor(db, sessionId);
 
   return {
     id: 'z-cloudbase-user-admin',
@@ -136,6 +158,21 @@ export function userAdmin(deps: { db: D1Database }) {
                   }
                 },
               },
+              update: {
+                // An impersonation session keeps its fixed lifetime: the engine's sliding refresh (skipped only
+                // while the "don't remember" cookie is present) must not move its expiry (PRD §21.5.2).
+                async before(data, hookCtx) {
+                  if (!data.expiresAt) return;
+                  const current = (hookCtx?.context.session?.session ?? null) as SessionLike | null;
+                  if (!current?.impersonatedBy || !current.expiresAt) return;
+                  return { data: { ...data, expiresAt: new Date(current.expiresAt) } };
+                },
+              },
+              delete: {
+                async after(session) {
+                  await endForDeletedSession(db, session as SessionLike);
+                },
+              },
             },
             account: {
               create: {
@@ -155,6 +192,23 @@ export function userAdmin(deps: { db: D1Database }) {
     },
     hooks: {
       before: [
+        {
+          // A session that says it is an impersonation but has no active, unexpired impersonation (ended or
+          // past its lifetime before the cron ran) is no session at all: delete it before anything reads it.
+          matcher: () => true,
+          handler: createAuthMiddleware(async (ctx) => {
+            const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret);
+            if (!token) return;
+            const row = await db.prepare(
+              `SELECT s.id, s.impersonatedBy, EXISTS (SELECT 1 FROM impersonations i WHERE i.session_id = s.id AND i.status = 'active' AND i.expires_at > ?) AS active
+               FROM session s WHERE s.token = ?`,
+            ).bind(Date.now(), token).first<{ id: string; impersonatedBy: string | null; active: number }>();
+            if (!row?.impersonatedBy || row.active) return;
+            await ctx.context.internalAdapter.deleteSession(token);
+            deleteSessionCookie(ctx);
+            ctx.context.session = null;
+          }),
+        },
         {
           matcher: (ctx) => !IMPERSONATION_ALLOWED_PATHS.has(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {
@@ -219,16 +273,6 @@ export function userAdmin(deps: { db: D1Database }) {
             if (imp && !(imp.status === 'active' && (imp.expires_at ?? 0) > Date.now())) {
               throw new APIError('BAD_REQUEST', { error: 'invalid_grant', error_description: 'the support session has ended' });
             }
-          }),
-        },
-        {
-          // Signing out of an impersonation session ends the impersonation (the session delete revokes its tokens).
-          matcher: (ctx) => ctx.path === '/sign-out',
-          handler: createAuthMiddleware(async (ctx) => {
-            const session = await getSessionFromCtx(ctx);
-            const actor = (session?.session as { impersonatedBy?: string | null } | undefined)?.impersonatedBy;
-            if (!actor) return;
-            await endImpersonations(db, { sessionId: session!.session.id }, 'signed_out', { type: 'user', id: actor });
           }),
         },
       ],
