@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Admin API (behavior change):** `GET /v1/admin/products/:id/logs` returns entries newest first and pages with a cursor: the response is `{ logs, next_before }`, and `before=<next_before>` fetches the next older page (PRD §4.4). Before, it returned the oldest entries of the window first, without paging, so recent entries could be cut off. The console Logs page shows newest first with "Load older entries".
+
 ### Fixed
 
 - Identity pages: engine errors with a known code (wrong password, invalid code, banned, passkey second-factor rules) are shown in the page language; the support-session confirmation page and banner are bilingual and use the shared layout; refused browser navigations (rate limit, actions during a support session) get an HTML error page instead of the JSON body; light/dark styling, styled error alerts, a sign-out button on the account page.

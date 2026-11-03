@@ -20,7 +20,9 @@ const messages = defineMessages({
     from: '开始时间',
     to: '结束时间',
     resultsTitle: '日志',
-    resultsDescription: '按环境和时间窗口的结构化检索，默认最近 24 小时。',
+    resultsDescription: '按环境和时间窗口的结构化检索，默认最近 24 小时，最新的在前。',
+    loadOlder: '加载更早的日志',
+    allLoaded: '已显示全部匹配的日志',
     time: '时间',
     source: '来源',
     message: '消息',
@@ -36,7 +38,9 @@ const messages = defineMessages({
     from: 'From',
     to: 'To',
     resultsTitle: 'Logs',
-    resultsDescription: 'Structured search by environment and time window; defaults to the last 24 hours.',
+    resultsDescription: 'Structured search by environment and time window; defaults to the last 24 hours, newest first.',
+    loadOlder: 'Load older entries',
+    allLoaded: 'All matching entries are shown',
     time: 'Time',
     source: 'Source',
     message: 'Message',
@@ -66,7 +70,12 @@ export function Logs({ product }: TabProps) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [logs, setLogs] = useState<LogRecord[] | null>(null);
+  // Query of the shown results and the cursor for the next (older) page.
+  const [page, setPage] = useState<{ query: Record<string, string>; next: string | null } | null>(null);
   const search = useAction();
+  const more = useAction();
+  const fetchPage = (query: Record<string, string>) =>
+    api.get<{ logs: LogRecord[]; next_before: string | null }>(`/products/${product.id}/logs`, query);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -76,7 +85,22 @@ export function Logs({ product }: TabProps) {
       if (level) q.set('level', level);
       if (from) q.set('from', new Date(from).toISOString());
       if (to) q.set('to', new Date(to).toISOString());
-      setLogs((await api.get<{ logs: LogRecord[] }>(`/products/${product.id}/logs`, Object.fromEntries(q))).logs);
+      // Pin the window so later pages stay consistent with the first one.
+      if (!to) q.set('to', new Date().toISOString());
+      const query = Object.fromEntries(q);
+      const res = await fetchPage(query);
+      setLogs(res.logs);
+      setPage({ query, next: res.next_before });
+    });
+  }
+
+  async function loadOlder() {
+    if (!page?.next) return;
+    const { query, next } = page;
+    await more.run(async () => {
+      const res = await fetchPage({ ...query, before: next });
+      setLogs((l) => [...(l ?? []), ...res.logs]);
+      setPage({ query, next: res.next_before });
     });
   }
 
@@ -149,6 +173,19 @@ export function Logs({ product }: TabProps) {
                 ))}
               </TableBody>
             </Table>
+          </div>
+        )}
+        {!search.busy && logs && logs.length > 0 && (
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <ErrorBanner message={more.error} className="w-full" />
+            {page?.next ? (
+              <Button variant="outline" size="sm" disabled={more.busy} onClick={loadOlder}>
+                {more.busy && <Loader2 className="animate-spin" />}
+                {t.loadOlder}
+              </Button>
+            ) : (
+              <p className="text-muted-foreground text-xs">{t.allLoaded}</p>
+            )}
           </div>
         )}
       </Section>

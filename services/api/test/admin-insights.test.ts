@@ -7,7 +7,7 @@ import { minter } from './helpers.ts';
 const mocks = vi.hoisted(() => ({ summary: vi.fn(), searchLogs: vi.fn() }));
 vi.mock('../src/identity.ts', () => ({ identity: () => ({ getJwks: async () => (globalThis as any).__testJwks }) }));
 vi.mock('../src/lib/analytics/index.ts', () => ({ analyticsQuery: () => ({ summary: mocks.summary }) }));
-vi.mock('../src/lib/logsearch/index.ts', () => ({ searchLogs: mocks.searchLogs }));
+vi.mock('../src/lib/logsearch/index.ts', async (orig) => ({ ...(await orig<object>()), searchLogs: mocks.searchLogs }));
 
 let w: World;
 beforeAll(async () => {
@@ -17,7 +17,7 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   mocks.summary.mockReset().mockResolvedValue({ daily: [], events_total: 42, top_events: [], source: 'd1_substitute' });
-  mocks.searchLogs.mockReset().mockResolvedValue([]);
+  mocks.searchLogs.mockReset().mockResolvedValue({ logs: [], next_before: null });
 });
 
 async function audit(action: string, productId: string | null, at: number) {
@@ -126,14 +126,21 @@ describe('GET /products/:id/analytics', () => {
 describe('GET /products/:id/logs', () => {
   it('searches within the product environment with request_id and level filters', async () => {
     const rec = [{ received_at: 'x', source: 'server', ingest_request_id: 'req_1', entry: { level: 'error', message: 'boom' } }];
-    mocks.searchLogs.mockResolvedValue(rec);
+    mocks.searchLogs.mockResolvedValue({ logs: rec, next_before: '1:2:k' });
     const res = await api(w.tok.operator, 'GET', `/products/${w.a}/logs?env=prod&request_id=req_abc&level=error&from=2026-10-08T00:00:00Z&to=2026-10-08T01:00:00Z`);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as Json).logs).toEqual(rec);
+    expect(await res.json()).toEqual({ logs: rec, next_before: '1:2:k' });
     expect(mocks.searchLogs.mock.calls[0]![1]).toEqual({
       productEnvId: w.envs.a.prod, from: Date.parse('2026-10-08T00:00:00Z'), to: Date.parse('2026-10-08T01:00:00Z'),
       limit: 100, requestId: 'req_abc', level: 'error',
     });
+  });
+
+  it('passes the before cursor through and rejects a malformed one', async () => {
+    const res = await api(w.tok.adminA, 'GET', `/products/${w.a}/logs?env=prod&limit=5&before=${encodeURIComponent('1793750400000:7:logs/x/prod/a.ndjson')}`);
+    expect(res.status).toBe(200);
+    expect(mocks.searchLogs.mock.calls[0]![1]).toMatchObject({ limit: 5, before: { at: 1793750400000, line: 7, key: 'logs/x/prod/a.ndjson' } });
+    expect(await errorCode(await api(w.tok.adminA, 'GET', `/products/${w.a}/logs?env=prod&before=nope`))).toBe('validation_failed');
   });
 
   it('validates input and enforces product isolation', async () => {
