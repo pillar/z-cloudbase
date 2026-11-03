@@ -86,6 +86,11 @@ const messages = defineMessages({
     col_error: '错误',
     col_response: '响应片段',
     col_delivery: '投递状态',
+    err_non2xx: '响应状态码不是 2xx',
+    err_timeout: '超时，接收端没有及时响应',
+    err_redirect: '接收端返回了重定向（不会跟随）',
+    err_network: '网络错误',
+    err_url_rejected: '地址不允许投递',
   },
   en: {
     title: 'Webhook endpoints',
@@ -152,8 +157,31 @@ const messages = defineMessages({
     col_error: 'Error',
     col_response: 'Response snippet',
     col_delivery: 'Delivery',
+    err_non2xx: 'Non-2xx response',
+    err_timeout: 'Timed out waiting for the receiver',
+    err_redirect: 'The receiver answered with a redirect (not followed)',
+    err_network: 'Network error',
+    err_url_rejected: 'URL not allowed for delivery',
   },
 });
+
+type Texts = (typeof messages)['en'];
+
+/**
+ * Readable text for a delivery attempt's error code (packages/webhooks deliver.ts): `http_<status>`,
+ * `timeout`, `redirect_not_followed`, `network_error: <detail>`, `url_rejected: <problem>`.
+ */
+function attemptError(t: Texts, error: string | null): string | null {
+  if (!error) return null;
+  if (/^http_\d+$/.test(error)) return t.err_non2xx;
+  if (error === 'timeout') return t.err_timeout;
+  if (error === 'redirect_not_followed') return t.err_redirect;
+  const [kind, ...rest] = error.split(': ');
+  const detail = rest.join(': ');
+  if (kind === 'network_error') return detail ? `${t.err_network}: ${detail}` : t.err_network;
+  if (kind === 'url_rejected') return detail ? `${t.err_url_rejected} (${detail})` : t.err_url_rejected;
+  return error;
+}
 
 interface FormState {
   url: string;
@@ -303,7 +331,7 @@ function DeliveryLog({ base, webhook, onClose, tick }: { base: string; webhook: 
                     <TableCell>{a.attempt} / {WEBHOOK_MAX_ATTEMPTS}</TableCell>
                     <TableCell>{codeBadge(a.status_code)}</TableCell>
                     <TableCell className="whitespace-nowrap">{f.number(a.latency_ms)} ms</TableCell>
-                    <TableCell className="max-w-48 truncate text-xs" title={a.error ?? undefined}>{a.error ?? '–'}</TableCell>
+                    <TableCell className="max-w-48 truncate text-xs" title={a.error ?? undefined}>{attemptError(t, a.error) ?? '–'}</TableCell>
                     <TableCell className="max-w-64 truncate font-mono text-xs" title={a.response_snippet ?? undefined}>{a.response_snippet ?? '–'}</TableCell>
                     <TableCell>{a.delivery_status ? <StatusBadge status={a.delivery_status} /> : '–'}</TableCell>
                   </TableRow>
@@ -373,7 +401,7 @@ export function Webhooks({ product }: TabProps) {
     const a = res!.attempt;
     if (!a) toast.info(t.test_queued);
     else if (a.status_code !== null && a.status_code >= 200 && a.status_code < 300) toast.success(t.test_ok(String(a.status_code), f.number(a.latency_ms)));
-    else toast.error(t.test_failed([a.status_code !== null ? `HTTP ${a.status_code}` : null, a.error].filter(Boolean).join(' · ') || '–'));
+    else toast.error(t.test_failed([a.status_code !== null ? `HTTP ${a.status_code}` : null, attemptError(t, a.error)].filter(Boolean).join(' · ') || '–'));
     setSelected(w.id);
     setLogTick((n) => n + 1);
   }
@@ -419,12 +447,12 @@ export function Webhooks({ product }: TabProps) {
                       </TableCell>
                       <TableCell>
                         <div className="flex max-w-64 flex-wrap gap-1">
-                          {w.event_types.map((e) => <Badge key={e} variant="secondary" className="font-mono text-xs font-normal">{e}</Badge>)}
+                          {w.event_types.map((e) => <Badge key={e} variant="outline" className="font-mono text-xs font-normal">{e}</Badge>)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={w.enabled ? 'active' : 'disabled'} />
-                        {w.previous_secret_expires_at && <div className="text-muted-foreground mt-1 text-xs whitespace-nowrap">{t.grace(f.time(w.previous_secret_expires_at))}</div>}
+                        {w.previous_secret_expires_at && <div className="text-muted-foreground mt-1 max-w-48 text-xs">{t.grace(f.time(w.previous_secret_expires_at))}</div>}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">{f.time(w.created_at)}</TableCell>
                       <TableCell>
