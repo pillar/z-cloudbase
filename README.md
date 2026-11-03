@@ -55,18 +55,25 @@ Open the console URL, sign in, create your first product. To try it without touc
 | `--name` | `z-cloudbase` | Display name on sign-in pages, emails, the TOTP issuer and the console |
 | `--domain` | workers.dev | Use `id.` / `api.` / `console.` custom domains of this zone |
 | `--prefix` | `z-cloudbase` | Resource name prefix; deploy several platforms to one account with different prefixes |
-| `--require-admin-2fa` | `false` | `true`: administrators must enroll TOTP before using the console |
+| `--require-admin-2fa` | `false` | `true`: administrators must pass a second factor (TOTP, or a passkey sign-in) before using the console |
+| `--signup-mode` | `open` | `open`: anyone can register; `invite`: only through invitations sent from the console (Invitations); `closed`: no new accounts. Outside `open`, guests and new Google / Apple / magic-link users are refused too |
+| `--require-email-verification` | `true` | `false` lets users sign in with an unverified email (the only way to accept email sign-ups without mail; anyone can then register someone else's address, and `email_verified` stays `false`) |
+| `--default-lang` | `en` | Language of the sign-in pages and mail when the browser asks for neither `zh` nor `en` |
+| `--passkeys` / `--magic-link` | `true` | Passkey sign-in; magic-link sign-in (only shown when mail is configured) |
+| `--logo-url` | | `https://` logo on the sign-in pages, in mail and in the console |
+| `--primary-color` | indigo | Hex color (`#4f46e5`) for the sign-in pages, mail links and the console |
+| `--tagline` | | One line (≤ 200 characters) under the sign-in title |
 | `--account-id` | the only account | When your login has several accounts |
 | `--location` | automatic | D1 / R2 location hint (`weur`, `enam`, …) |
 | `--dry-run` | | Generate configs and build only; nothing is created or uploaded |
 
 ### Optional integrations
 
-Set these in the environment of the deploy command; they are uploaded as Worker secrets (and kept by later runs that do not set them). The deploy output lists what is still unconfigured.
+Set these in the environment of the deploy command; secrets are uploaded as Worker secrets and other mail settings are kept in `.deploy/<prefix>.json` (later runs that do not set them keep them). The deploy output lists what is still unconfigured.
 
 | Variables | Enables | Without it |
 |---|---|---|
-| `RESEND_API_KEY` + `EMAIL_FROM` | Email verification and password-reset mail ([Resend](https://resend.com)) | Users cannot sign up with email/password or reset passwords (guest accounts and the administrator work) |
+| `EMAIL_FROM` + one transport: `RESEND_API_KEY` ([Resend](https://resend.com)), or `EMAIL_TRANSPORT=smtp` + `SMTP_HOST` [`SMTP_PORT`=465, `SMTP_USERNAME`, `SMTP_PASSWORD`], or `EMAIL_TRANSPORT=cloudflare` | Verification, password-reset, magic-link and invitation mail. SMTP works on Workers Free (implicit TLS only — no STARTTLS, no port 25); Cloudflare Email Service needs Workers Paid and a sending domain onboarded to it | With email verification required (default): no email/password sign-up, password reset or magic link (guests, social sign-in and the administrator work) |
 | `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` | Turnstile challenge after 3 failed sign-ins | Failed sign-ins are only rate limited |
 | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` | File uploads/downloads (presigned R2 S3 URLs; an R2 API token with object read/write on `<prefix>-storage`) | Storage endpoints answer `unavailable` |
 | `CF_ANALYTICS_API_TOKEN` | Analytics charts in the console (Account Analytics: Read) | Events are collected but cannot be queried |
@@ -82,7 +89,8 @@ pnpm platform:deploy             # settings of the first run are in .deploy/<pre
 ### Administrators
 
 - More administrators and product roles (`owner`, `operator`, `product_admin`, `product_developer`) are managed in the console under Team.
-- TOTP is optional by default; an administrator can enable it on the identity domain's `/account` page. Once enabled, it is required at every console sign-in.
+- TOTP is optional by default; an administrator can enable it on the identity domain's `/account` page. Once enabled, it is required at every console sign-in. A passkey (added on `/account`) also counts: signing in with it satisfies the console's second-factor requirement.
+- With `--signup-mode invite`, owners invite users from the console (Invitations); the link is mailed to the invited address (or shown once when no mail is configured).
 - Lost password or authenticator (no mail provider needed):
 
   ```sh

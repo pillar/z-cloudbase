@@ -119,7 +119,9 @@ logoutButton.onclick = async () => { await platform.auth.signOut(); render(null)
 platform.auth.onAuthStateChange((user) => render(user ? 'signed-in' : null));
 ```
 
-- 登录页由平台提供（邮箱+密码、注册、找回密码），你的产品**不要**自己做密码表单，也不要收集密码。
+- 登录页由平台提供（邮箱+密码、注册、找回密码；部署启用时还有 Passkey、邮件登录链接、Google / Apple），你的产品**不要**自己做密码表单，也不要收集密码。所有方式登录后都回到同一个 `redirectUri`，产品代码不需要区分。
+- 登录页按浏览器语言显示中文或英文，页面上可以切换；要强制语言，可把用户带到 `https://id.example.com/login?lang=zh`（或 `en`），选择会记住。
+- 部署的注册模式（PRD §21.2）决定新用户能否注册：`open` 任何人可注册；`invite` 只有收到平台邀请的人能注册；`closed` 不再创建新账号。后两种模式下，没有账号的用户会停在登录页，产品应提示「请联系平台管理员获取邀请」。
 - 回调页可以就是首页，关键是它要处理 `?code=`。
 
 ### 4.3 游客模式（游戏等「先玩后注册」的产品）
@@ -136,6 +138,7 @@ if (!(await platform.auth.getUser())) {
 - **升级为正式账号**：把用户带到 `https://id.example.com/link`（新标签页或跳转），用户设置邮箱+密码后，`user_id` 和所有产品数据**保持不变**。回来后调用一次 `platform.auth.signInWithRedirect()`（SSO，无需输入）刷新 token，`getUser().anonymous` 即为 `false`。
 - 游客 30 天不活跃会被平台回收；在游戏里提示用户及时绑定邮箱。
 - 产品可见性必须是「公开」，否则游客无法自动加入。
+- 只有注册模式为 `open` 的部署允许新游客；`invite` / `closed` 下 `/guest` 返回 403（`details.reason = "signup_closed"`），已有会话的用户不受影响。游戏应在这种情况下改走普通登录（`signInWithRedirect()`）。
 
 ### 4.4 当前用户
 
@@ -310,7 +313,7 @@ const { url } = await platform.storage.getDownloadUrl(obj.id);
 
 ## 9. 当前限制（请告知人类负责人）
 
-- 登录方式取决于部署配置：游客始终可用；邮箱+密码注册需要部署方配置邮件服务（验证邮件）；Google / Apple 需部署方配置凭据，且尚未经过真实供应商验证。
+- 登录方式取决于部署配置：游客只在注册模式为 `open` 时可用；邮箱+密码注册默认需要部署方配置邮件服务（验证邮件，Resend / SMTP / Cloudflare Email Service）；邮件登录链接只在配置了邮件时出现；Passkey 默认启用；Google / Apple 需部署方配置凭据。真实邮件投递、真实 Passkey 设备与真实 Google / Apple 尚未经过远程验证（本地用替身测试）。
 - 服务端渲染应用的「BFF 登录」（`platform.bff(...)`）需要机密客户端，控制台暂不支持创建，暂不可用；请用前端登录 + 后端 `verifyToken`。
 - 原生 App（系统浏览器 + 自定义 scheme 回调）尚未验证。
 - SDK 默认 15 秒超时并自动重试可重试错误。

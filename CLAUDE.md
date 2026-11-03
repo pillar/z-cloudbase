@@ -68,6 +68,9 @@ pnpm sdk:pack                           # 构建可分发的 SDK：dist-sdk/z-cl
 - 运营脚本（`scripts/*.ts`、`tests/e2e/local-stack/*.ts`）由 Node 直接执行（类型剥离）：不能用构造函数参数属性、enum 等需要编译的 TS 语法。
 
 - Worker 测试：`exports.default.fetch()`（来自 `cloudflare:workers`）用于集成测试；D1 迁移由 `test/apply-migrations.ts` 在每个测试文件开始前应用。api / consumer 测试中，`IDENTITY` 通过 `app.request(path, init, { ...env, IDENTITY: stub })` 注入；identity 测试用 `useEnv({ VAR: '…' })`（`test/helpers.ts`）覆盖部署变量。**不要用 `vi.mock` 替换 Worker 入口依赖图中的模块**：入口加载时这些模块已经载入，mock 不会生效。token 用 `@z-cloudbase/testing` 的 `createTestTokenMinter()` 签发。
+- identity 页面与邮件中英双语（PRD §21.4）：页面文案在 `services/identity/src/messages.ts`、邮件文案在 `email.ts`，都用 `defineMessages({ zh, en })`（编译器检查 key 一致）；页面取 `tr(c)`，邮件取触发请求的语言（`requestLang`）。部署变量（注册模式、品牌等）统一经 `src/settings.ts` 校验后使用，不直接读 `env`。
+- identity 本地 `REQUIRE_EMAIL_VERIFICATION=false`（注册后可直接登录）；验证流程的测试用 `useEnv({ REQUIRE_EMAIL_VERIFICATION: 'true' })`。SMTP 测试的假对端在 `services/identity/test-node/smtp-peer.ts`（vitest globalSetup，Node 中运行）；Passkey 测试用软件认证器 `test/webauthn.ts`（e2e 也复用）。
+- 新的 identity RPC 方法若会因业务原因失败，返回 `RpcResult`（`{ ok: false, error: { code, message } }`），由 api 转回 `ApiError`：Workers RPC 只保留抛出错误的 message，`ApiError` 的 code 会丢失。
 - `worker-configuration.d.ts` 是生成文件（已加入 gitignore），由 `wrangler types` 生成。
 - 迁移编号分段，避免并行冲突：`0001` 平台元数据，`0002` 认证引擎，`0010–0019` identity，`0020–0029` api/storage，`0030–0039` consumer/ingest，`0040–0049` admin。ingest 库的迁移放在 `database/ingest-migrations`。
 

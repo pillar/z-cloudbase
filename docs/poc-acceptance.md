@@ -75,6 +75,18 @@
 | `pnpm platform:deploy` 真实部署（建资源、迁移、secrets、custom domain / workers.dev、install） | 无 | **远程未验证** |
 | `pnpm platform:reset-admin`（`wrangler secret put` 后调用） | 无 | **远程未验证** |
 
+## v3.1：邮件、注册模式、Passkey、Magic link、品牌与多语言（PRD §21.2–21.4）
+
+| 项目 | 证据 | 状态 |
+|---|---|---|
+| SMTP 发信（worker-mailer，`cloudflare:sockets`）：AUTH、MAIL / RCPT / DATA、错误不含收件人和服务器原文 | identity：`email-transports.test.ts`（Node 中的假 SMTP 对端，明文 TCP） | 本地协议边界已验证；隐式 TLS 握手与真实投递**远程未验证** |
+| Cloudflare Email Service（`send_email` 绑定） | identity：`email-transports.test.ts`（假绑定）；`platform:deploy --dry-run` 生成 `SEND_EMAIL` 绑定 | 本地已验证（假绑定）；真实发送需 Workers Paid，**远程未验证** |
+| 注册模式 open / invite / closed、邮箱验证开关、无邮件时的降级 | identity：`signup-modes.test.ts` | 本地已验证 |
+| 邀请：只用一次、过期 / 撤销 / 未知链接一致拒绝、邮件送达时视为已验证、审计；api 路由仅 owner | identity：`signup-modes.test.ts`；api：`admin-invitations.test.ts` | 本地已验证 |
+| Passkey：注册 / 登录 / 删除、UV 必需、RP 固定为 issuer、OIDC 流程中继续授权、满足控制台 MFA | identity：`passkey.test.ts`（软件认证器 `test/webauthn.ts`）；e2e：`08-sign-in-methods` | 本地已验证（软件认证器）；真实设备 / 浏览器 WebAuthn **未验证** |
+| Magic link：一次性、哈希存储、回调限制、继续授权、TOTP 账号不发链接、限流 | identity：`magic-link.test.ts`；e2e：`08-sign-in-methods` | 本地已验证（outbox）；真实投递**远程未验证** |
+| 登录页与邮件中英双语、品牌值校验 | identity：`i18n-brand.test.ts`；console：`brand.test.ts`；e2e：`08-sign-in-methods` | 本地已验证 |
+
 ## 派生前的远程验证摘要（2026-10-09）
 
 本代码派生自一个私有 POC。该 POC 的同一套 Worker 曾部署到 Cloudflare（Workers Free 套餐）验证过：跨产品 SSO 与越权 401、事件经 Queue 进入 Analytics Engine 并可由 AE SQL 查询、R2 S3 预签名直传（含 CORS 预检）、Turnstile 拦截与 siteverify 拒绝路径、Resend 发信、控制台 Workers Static Assets 与管理员 TOTP。当时发现并修复的问题（PATCH 的 CORS、按队列角色路由、AE 数据集可配置、AE 不支持 `uniq`、认证限流改用 D1 计数）都已包含在本仓库中。之后的去品牌化、自部署脚本与初始化流程没有做过远程验证。
@@ -88,8 +100,8 @@
 - Turnstile：可选；真人通过挑战后的放行路径未验证。
 - 压测、延迟与成本基准、成本告警：未做。
 - 备份与恢复演练：未做。
-- 管理员 MFA：TOTP + 备用码（本地已验证），默认可选。没有 WebAuthn；丢失 TOTP 且用完备用码时用 `pnpm platform:reset-admin --disable-2fa`（远程未验证）。
-- 邮件：Resend 适配器；送达率、退信处理未验证。未配置邮件时用户邮箱注册会失败（验证邮件发不出），管理员不受影响（由初始化接口直接创建为已验证）。
+- 管理员 MFA：TOTP + 备用码，或用户验证的 Passkey 登录（本地已验证，Passkey 用软件认证器），默认可选。丢失 TOTP 且用完备用码时用 `pnpm platform:reset-admin --disable-2fa`（远程未验证）；该命令不删除 Passkey。
+- 邮件：Resend / SMTP / Cloudflare Email Service 适配器；送达率、退信处理未验证。未配置邮件且要求验证（默认）时邮箱注册、找回密码、Magic link 不可用；运营者可用 `--require-email-verification false` 放开（PRD §21.2 写明风险）。管理员不受影响（由初始化接口直接创建为已验证）。
 - 导出一次性链接：已实现（本地已验证）。过期链接（含已使用的）由 consumer 每 15 分钟的 cron 删除（`cron.test.ts` 覆盖）。
 - 移动端（RFC 8252 系统浏览器 + 自定义 scheme）流程、scrypt 在 Workers 生产环境的 CPU 时间：未验证。
 - 浏览器行为是 Node 中的模拟（Cookie、重定向、CORS 预检），不是真实浏览器引擎；`SameSite` 等 Cookie 属性未模拟。
