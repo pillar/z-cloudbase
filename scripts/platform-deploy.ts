@@ -30,8 +30,8 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { generatePassword, installPlatform, randomSecret } from './lib/setup-client.ts';
 import {
-  PREFIX_RE, ROOT, WranglerError, generatedConfig, readJsonc, readRecord, resourceNames, wrangler, writeRecord,
-  type DeploymentRecord, type ResourceNames,
+  PREFIX_RE, ROOT, WranglerError, applyRateLimitNamespaces, generatedConfig, readJsonc, readRecord, resourceNames, wrangler, writeRecord,
+  type DeploymentRecord, type ResourceNames, type RestorePoint,
 } from './lib/wrangler.ts';
 
 const LOCAL = resourceNames('z-cloudbase');
@@ -136,12 +136,40 @@ async function d1Id(name: string): Promise<string | null> {
   }
 }
 
-async function ensureD1(name: string, location: string | undefined): Promise<string> {
+async function ensureD1(name: string, location: string | undefined): Promise<{ id: string; created: boolean }> {
   const existing = await d1Id(name);
-  if (existing) return existing;
+  if (existing) return { id: existing, created: false };
   await wrangler(['d1', 'create', name, ...(location ? ['--location', location] : [])]);
-  return (await d1Id(name)) ?? fail(`D1 database ${name} was created but cannot be read back`);
+  return { id: (await d1Id(name)) ?? fail(`D1 database ${name} was created but cannot be read back`), created: true };
 }
+
+/** Current D1 Time Travel bookmark (`wrangler d1 time-travel info --json`), or null with a warning. */
+async function currentBookmark(db: string): Promise<string | null> {
+  try {
+    const out = await wrangler(['d1', 'time-travel', 'info', db, '--json']);
+    const bookmark = (JSON.parse(out.slice(out.indexOf('{'))) as { bookmark?: string }).bookmark;
+    if (bookmark) return bookmark;
+  } catch (e) {
+    console.warn(`  warning: cannot read the Time Travel bookmark of ${db}: ${e instanceof Error ? e.message.split('\n')[0] : e}`);
+  }
+  return null;
+}
+
+const restoreCommand = (db: string, bookmark: string) => `pnpm exec wrangler d1 time-travel restore ${db} --bookmark=${bookmark}`;
+
+function printRestorePoint(rp: RestorePoint, log: (m: string) => void = console.log) {
+  log(`  Restore points taken ${rp.at}${rp.fromCommit ? ` (before upgrading from ${rp.fromVersion ?? '?'} @ ${rp.fromCommit})` : ''}.`);
+  log('  To roll the databases back (DESTRUCTIVE: overwrites current data; then deploy the earlier commit again):');
+  for (const [db, b] of Object.entries(rp.bookmarks)) log(`    ${restoreCommand(db, b)}`);
+}
+
+function gitCommit(): string | undefined {
+  const head = spawnSync('git', ['rev-parse', '--short=12', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+  if (head.status !== 0) return undefined;
+  const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim() !== '';
+  return head.stdout.trim() + (dirty ? '-dirty' : '');
+}
+const VERSION = (readJsonc<{ version?: string }>('package.json').version ?? '0.0.0');
 
 /** Create unless `info` finds it; a create that fails for another reason than "exists" stops the run. */
 async function ensure(kind: 'r2 bucket' | 'queues', name: string, location?: string): Promise<void> {
@@ -177,6 +205,8 @@ function generate(worker: (typeof WORKERS)[number], prefix: string, g: GenerateI
   delete config.dev;
   // Secrets are managed here (AUTH_SECRET once, SETUP_TOKEN every run), not validated by wrangler.
   delete config.secrets;
+  // The rate limit namespace is account-wide: derive it from the prefix so deployments do not share counters.
+  applyRateLimitNamespaces(config, prefix);
   for (const db of config.d1_databases ?? []) db.database_id = g.d1Ids[db.database_name] ?? fail(`no D1 id for ${db.database_name}`);
   const vars = { ...config.vars, ...g.vars[worker.key] };
   if (Object.keys(vars).length) config.vars = vars;
@@ -238,13 +268,18 @@ async function main() {
   const urls = urlsFor(domain, domain || o.dryRun ? 'your-subdomain' : await workersSubdomain(accountId), names);
 
   const d1Ids: Record<string, string> = {};
+  /** Databases that existed before this run: only those have data worth a restore point. */
+  const existingDbs: string[] = [];
   if (o.dryRun) {
     d1Ids[names.platformDb] = '00000000-0000-4000-8000-000000000001';
     d1Ids[names.ingestDb] = '00000000-0000-4000-8000-000000000002';
   } else {
     step('Resources (D1, R2, Queues)');
-    d1Ids[names.platformDb] = await ensureD1(names.platformDb, o.location);
-    d1Ids[names.ingestDb] = await ensureD1(names.ingestDb, o.location);
+    for (const db of [names.platformDb, names.ingestDb]) {
+      const r = await ensureD1(db, o.location);
+      d1Ids[db] = r.id;
+      if (!r.created) existingDbs.push(db);
+    }
     for (const bucket of [names.storage, names.archive]) await ensure('r2 bucket', bucket, o.location);
     for (const queue of [names.logs, names.events, names.logsDlq, names.eventsDlq]) await ensure('queues', queue);
     console.log(`  D1 ${names.platformDb}, ${names.ingestDb}; R2 ${names.storage}, ${names.archive}; Queues ${names.logs}, ${names.events} (+ DLQs)`);
@@ -263,13 +298,37 @@ async function main() {
     consumer: { DEPLOY_ENV: 'production' },
     console: {},
   };
+  let restorePoint: RestorePoint | undefined;
+  const baseRecord = (): DeploymentRecord => ({ prefix: o.prefix, name, domain: domain ?? null, adminEmail: adminEmail!, requireAdmin2fa, accountId, urls });
   const configs = Object.fromEntries(WORKERS.map((w) => [w.key, generate(w, o.prefix, { names, d1Ids, urls, domain, vars })])) as Record<WorkerKey, string>;
   console.log(`\n  generated ${Object.values(configs).join(', ')}`);
 
   if (!o.dryRun) {
+    if (existingDbs.length) {
+      step('Restore point (D1 Time Travel)');
+      const bookmarks: Record<string, string> = {};
+      for (const db of existingDbs) {
+        const b = await currentBookmark(db);
+        if (b) bookmarks[db] = b;
+      }
+      if (Object.keys(bookmarks).length) {
+        restorePoint = { at: new Date().toISOString(), fromVersion: record?.version, fromCommit: record?.commit, bookmarks };
+        // Persisted before the migrations run, so it survives a failed upgrade.
+        writeRecord({ ...(record ?? baseRecord()), restorePoints: restorePoint });
+        printRestorePoint(restorePoint);
+      }
+    }
     step('Migrations');
     for (const db of [names.platformDb, names.ingestDb]) {
-      await wrangler(['d1', 'migrations', 'apply', db, '--remote', '-c', configs.api], { env: accountEnv });
+      try {
+        await wrangler(['d1', 'migrations', 'apply', db, '--remote', '-c', configs.api], { env: accountEnv });
+      } catch (e) {
+        if (restorePoint) {
+          console.error(`\nMigration of ${db} failed. The databases can be restored to the state before this upgrade:`);
+          printRestorePoint(restorePoint, console.error);
+        }
+        throw e;
+      }
     }
     step('Storage bucket CORS (presigned browser uploads)');
     const tmp = mkdtempSync(path.join(tmpdir(), 'platform-deploy-'));
@@ -338,7 +397,10 @@ async function main() {
   step('Install (console client, first administrator)');
   const adminPassword = generatePassword();
   const installed = await installPlatform(urls.identity, setupToken, { adminEmail, adminPassword, consoleRedirectUris: [`${urls.console}/`] });
-  const r: DeploymentRecord = { prefix: o.prefix, name, domain: domain ?? null, adminEmail, requireAdmin2fa, accountId, urls };
+  const r: DeploymentRecord = {
+    ...baseRecord(), version: VERSION, commit: gitCommit(), deployedAt: new Date().toISOString(),
+    ...(restorePoint ? { restorePoints: restorePoint } : record?.restorePoints ? { restorePoints: record.restorePoints } : {}),
+  };
   writeRecord(r);
 
   console.log(`\nDone. "${name}" is deployed:\n  console   ${urls.console}\n  identity  ${urls.identity}\n  api       ${urls.api}`);
@@ -354,6 +416,10 @@ async function main() {
     !configured.has('R2_SECRET_ACCESS_KEY') && 'storage presigning (R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY): file uploads / downloads are unavailable',
     !configured.has('CF_ANALYTICS_API_TOKEN') && 'analytics queries (CF_ANALYTICS_API_TOKEN): events are collected but the console cannot chart them',
   ].filter(Boolean);
+  if (restorePoint) {
+    console.log('\nD1 restore point (taken before this upgrade\'s migrations):');
+    printRestorePoint(restorePoint);
+  }
   if (missing.length) console.log(`\nNot configured yet (set the variables and run again):\n${missing.map((m) => `  - ${m}`).join('\n')}`);
 }
 

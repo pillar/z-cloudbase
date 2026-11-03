@@ -15,10 +15,14 @@
     "bootstrap:staging": "pnpm --filter @z-cloudbase/e2e bootstrap:staging",
     "sdk:pack": "node scripts/build-sdk.mjs",
     "platform:deploy": "node scripts/platform-deploy.ts",
-    "platform:reset-admin": "node scripts/platform-reset-admin.ts"
+    "platform:reset-admin": "node scripts/platform-reset-admin.ts",
+    "test:scripts": "node --test scripts/test/*.test.ts",
+    "platform:destroy": "node scripts/platform-destroy.ts",
+    "dev": "node scripts/dev.ts"
   },
   "devDependencies": {
     "esbuild": "0.25.12",
     "typescript": "7.0.2"
-  }
+  },
+  "version": "0.1.0"
 }
