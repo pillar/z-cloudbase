@@ -168,7 +168,11 @@ describe('IdentityRpc', () => {
   it('exportUserIdentity returns profile and providers, never hashes or tokens', async () => {
     const jar = new CookieJar();
     const { email, userId } = await signUp(jar);
+    await env.DB.prepare(
+      `INSERT INTO passkey (id, name, publicKey, userId, credentialID, counter, deviceType, backedUp, createdAt) VALUES ('pk_exp', 'Laptop', 'PUBLIC-KEY-NOT-EXPORTED', ?, 'CRED-NOT-EXPORTED', 0, 'multiDevice', 1, '2026-11-01T00:00:00.000Z')`,
+    ).bind(userId).run();
     const exported = await rpc().exportUserIdentity({ userId });
+    expect(JSON.stringify(exported)).not.toMatch(/NOT-EXPORTED/);
     expect(exported).toEqual({
       user_id: userId,
       email,
@@ -177,6 +181,8 @@ describe('IdentityRpc', () => {
       is_anonymous: false,
       created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       providers: ['credential'],
+      two_factor_enabled: false,
+      passkeys: [{ name: 'Laptop', created_at: '2026-11-01T00:00:00.000Z', device_type: 'multiDevice', backed_up: true }],
     });
     const anon = await call('/api/auth/sign-in/anonymous', { json: {} });
     const anonId = (await anon.json<{ user: { id: string } }>()).user.id;

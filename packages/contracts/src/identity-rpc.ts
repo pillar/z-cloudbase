@@ -47,6 +47,9 @@ export interface IdentityRpcApi {
     is_anonymous: boolean;
     created_at: string;
     providers: string[];
+    /** v3.1: second factors (metadata only; never TOTP secrets, backup codes or passkey public keys). */
+    two_factor_enabled: boolean;
+    passkeys: Array<{ name: string | null; created_at: string | null; device_type: string; backed_up: boolean }>;
   }>;
   /**
    * Platform invitations (PRD §21.2). `actorId` / `requestId` are the calling admin and request, for the

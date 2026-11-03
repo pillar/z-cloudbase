@@ -137,6 +137,9 @@ export class IdentityRpc extends WorkerEntrypoint<Env> implements IdentityRpcApi
     if (!user || (user as { deletedAt?: Date | null }).deletedAt) throw new ApiError('not_found', 'User not found');
     const accounts = await ctx.internalAdapter.findAccounts(userId);
     const anon = Boolean((user as { isAnonymous?: boolean | null }).isAnonymous);
+    const { results: passkeys } = await this.env.DB.prepare(
+      'SELECT name, createdAt, deviceType, backedUp FROM passkey WHERE userId = ? ORDER BY createdAt',
+    ).bind(userId).all<{ name: string | null; createdAt: string | number | null; deviceType: string; backedUp: number }>();
     return {
       user_id: user.id,
       // Anonymous users only hold an engine-generated placeholder address.
@@ -146,6 +149,13 @@ export class IdentityRpc extends WorkerEntrypoint<Env> implements IdentityRpcApi
       is_anonymous: anon,
       created_at: new Date(user.createdAt).toISOString(),
       providers: [...new Set(accounts.map((a) => a.providerId))].sort(),
+      two_factor_enabled: Boolean((user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled),
+      passkeys: passkeys.map((k) => ({
+        name: k.name,
+        created_at: k.createdAt === null ? null : new Date(typeof k.createdAt === 'string' && /^\d+$/.test(k.createdAt) ? Number(k.createdAt) : k.createdAt).toISOString(),
+        device_type: k.deviceType,
+        backed_up: Boolean(k.backedUp),
+      })),
     };
   }
 

@@ -678,8 +678,8 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 - **退出产品**：立即将 membership 设为 `revoked`，撤销该产品 audience 下的 refresh token；之后由后台删除该产品下归属此用户的 Storage 对象，并删除这条 revoked 记录。此后用户可以重新登录、再次加入开放产品。全局账号保留。
 - **管理员撤销 membership**：`revoked` 对管理员是终态，不能改回 `suspended` 或 `active`；这条记录会一直保留，用户无法重新加入。
 - **删除全局账号**：先进入 7 天冷静期（可撤回；后台开始处理后不可撤回），之后级联：撤销全部会话和 token → 删除全部 membership（产品 API 立即拒绝该用户）→ 删除 Storage 对象与历史导出文件 → 删除凭据，在 `users` 中只保留墓碑（id、deleted_at），以便审计关联。
-- **Analytics 中的身份**：事件只写入 `user_key = HMAC(user_id, product_salt)`，不写原始 `user_id`。Analytics Engine 的数据无法逐条删除，依赖 90 天自然过期；R2 归档按分区重写或删除。PRD 承诺的删除完成时间 = 冷静期 + 最长 90 天，必须在隐私政策中如实说明。
-- **导出**：生成 JSON（账户资料、membership、Storage 对象清单），写入私有 R2 路径，用一次性短期链接下载。
+- **Analytics 中的身份**：事件只写入 `user_key = HMAC(user_id, product_salt)`，不写原始 `user_id`。Analytics Engine 的数据无法逐条删除，依赖 90 天自然过期；R2 归档不重写，删除后的导出排除该用户，分区到保留期后整体删除（v3.1，§21.9）。PRD 承诺的删除完成时间 = 冷静期 + 最长 90 天，必须在隐私政策中如实说明。
+- **导出**：生成 JSON（账户资料、membership、Storage 对象清单；v3.1 起含第二因素的元数据：是否启用 TOTP、Passkey 的名称 / 创建时间 / 设备类型 / 是否云同步，不含 TOTP 密钥、备用码和 Passkey 公钥），写入私有 R2 路径，用一次性短期链接下载。
 - **发起位置**：删除全局账号（含冷静期内撤回）与导出申请只能在身份域的用户中心发起和下载，凭身份域会话 Cookie，并要求 5 分钟内完成过再认证（§19.4）；产品 API 的 access token 既不能证明近期认证，也无权代表跨产品数据，因此产品 API 只提供“退出产品”及查询本产品的退出申请。导出通过一次性下载链接交付（§19.11）。
 
 ### 19.9 控制台认证与 RBAC
