@@ -35,6 +35,8 @@ export interface BreakdownResult {
   by: string;
   rows: Array<{ value: string; events: number; users: number }>;
   source: 'analytics_engine' | 'd1_substitute';
+  from?: string;
+  to?: string;
 }
 
 export interface ExplorerEvent {
