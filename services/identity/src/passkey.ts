@@ -2,10 +2,13 @@
 // the issuer, user verification required on both ceremonies (so a passkey sign-in is multi-factor and
 // counts for the console MFA requirement, src/mfa-policy.ts), audit events, and the small same-origin
 // browser script that runs the WebAuthn ceremonies for the server-rendered pages.
+import { REAUTH_WINDOW_S } from '@z-cloudbase/contracts';
 import { passkey } from '@better-auth/passkey';
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api';
 import { writeAudit } from './audit.ts';
+import type { EmailAdapter } from './email.ts';
+import type { Lang } from './settings.ts';
 
 export const PASSKEY_SIGN_IN_PATH = '/passkey/verify-authentication';
 
@@ -32,13 +35,44 @@ export function passkeyPlugin(o: { issuer: string; platformName: string }) {
   });
 }
 
-/** Anonymous users cannot add passkeys (not an upgrade path); adding / removing one is audited. */
-export function passkeyPolicy(deps: { db: D1Database }) {
+/**
+ * Whether this session may add a passkey (PRD §21.3). An account that already has a second factor (TOTP or
+ * a passkey) adds one only from a session that passed it within the re-authentication window: a TOTP code
+ * (sign-in challenge or step-up) or a passkey sign-in, both recorded as `twoFactorVerifiedAt`
+ * (mfa-policy.ts). Otherwise a session from a social or magic-link sign-in, which the two-factor plugin
+ * does not challenge, could enroll its own passkey and then pass the console MFA requirement with it.
+ * The first passkey of an account without either factor needs no second factor (there is none yet).
+ */
+export async function passkeyEnrollmentAllowed(
+  db: D1Database,
+  s: { user: { id: string }; session: object },
+  now = Date.now(),
+): Promise<boolean> {
+  const verifiedAt = (s.session as { twoFactorVerifiedAt?: Date | string | null }).twoFactorVerifiedAt;
+  if (verifiedAt && now - new Date(verifiedAt).getTime() <= REAUTH_WINDOW_S * 1000) return true;
+  if ((s.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled) return false;
+  return !(await db.prepare('SELECT 1 FROM passkey WHERE userId = ? LIMIT 1').bind(s.user.id).first());
+}
+
+/**
+ * Anonymous users cannot add passkeys (not an upgrade path); accounts with a second factor need it on this
+ * session first (see passkeyEnrollmentAllowed); adding / removing one is audited, and an added passkey is
+ * announced to the account's email when mail is configured (best effort).
+ */
+export function passkeyPolicy(deps: { db: D1Database; mail?: { email: EmailAdapter; lang: () => Lang | undefined } | null }) {
   const audit = (userId: string, action: string, passkeyId: unknown) =>
     writeAudit(deps.db, {
       actorType: 'user', actorId: userId, action, targetType: 'user', targetId: userId,
       metadata: typeof passkeyId === 'string' ? { passkey_id: passkeyId } : {},
     });
+  const notify = async (user: { email?: string | null; isAnonymous?: boolean | null }) => {
+    if (!deps.mail || !user.email || user.isAnonymous) return;
+    try {
+      await deps.mail.email.send({ to: user.email, template: 'passkey_added', payload: {}, lang: deps.mail.lang() });
+    } catch (e) {
+      console.error(JSON.stringify({ msg: 'passkey notice failed', error: String((e as Error)?.message ?? e) }));
+    }
+  };
   return {
     id: 'z-cloudbase-passkey-policy',
     hooks: {
@@ -47,8 +81,15 @@ export function passkeyPolicy(deps: { db: D1Database }) {
           matcher: (ctx) => ctx.path === '/passkey/generate-register-options' || ctx.path === '/passkey/verify-registration',
           handler: createAuthMiddleware(async (ctx) => {
             const session = await getSessionFromCtx(ctx);
-            if ((session?.user as { isAnonymous?: boolean | null } | undefined)?.isAnonymous) {
+            if (!session) return; // the engine answers 401
+            if ((session.user as { isAnonymous?: boolean | null }).isAnonymous) {
               throw new APIError('FORBIDDEN', { code: 'ANONYMOUS_PASSKEY', message: 'Guests cannot add a passkey; add an email or a provider first' });
+            }
+            if (!(await passkeyEnrollmentAllowed(deps.db, session))) {
+              throw new APIError('FORBIDDEN', {
+                code: 'SECOND_FACTOR_REQUIRED',
+                message: `Confirm your second factor first (authenticator code on /two-factor, or sign in with a passkey), then add the passkey within ${REAUTH_WINDOW_S / 60} minutes`,
+              });
             }
           }),
         },
@@ -64,6 +105,7 @@ export function passkeyPolicy(deps: { db: D1Database }) {
             if (ctx.path === '/passkey/delete-passkey') return audit(session.user.id, 'auth.passkey_removed', ctx.body?.id);
             const body = returned instanceof Response ? await returned.clone().json().catch(() => null) : returned;
             await audit(session.user.id, 'auth.passkey_added', (body as { id?: unknown } | null)?.id);
+            await notify(session.user as { email?: string | null; isAnonymous?: boolean | null });
           }),
         },
       ],

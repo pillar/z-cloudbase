@@ -26,6 +26,7 @@ export function getAuth(env: Env): Auth {
     socialProviders: social,
     trustedOrigins: social?.apple ? [APPLE_ORIGIN] : [],
     email: emailAdapterFor(env),
+    mailAvailable: mailAvailable(env),
     lang: () => requestLang(env),
     signupMode: mode,
     requireEmailVerification: requireEmailVerification(env),

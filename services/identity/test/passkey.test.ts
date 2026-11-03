@@ -9,8 +9,9 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { registerConsoleClient } from '../src/clients.ts';
 import { IdentityRpc } from '../src/index.ts';
 import { asSystem } from '../src/system.ts';
-import { CookieJar, auditRows, auth, call, signUp, useEnv } from './helpers.ts';
-import { CONSOLE, consoleToken, startConsoleLogin } from './mfa.ts';
+import { totp } from '@z-cloudbase/testing';
+import { CookieJar, auditRows, auth, call, outbox, signIn, signUp, useEnv } from './helpers.ts';
+import { CONSOLE, consoleToken, enrollTotp, startConsoleLogin } from './mfa.ts';
 import { authorizeUrl, exchangeCode, pkcePair, randomToken, setupClients, type TokenResponse } from './oauth-flow.ts';
 import { SoftAuthenticator } from './webauthn.ts';
 
@@ -86,6 +87,65 @@ describe('passkey registration', () => {
     expect((await register(jar, device, { uv: false })).status).toBe(400);
     expect((await register(jar, device, { origin: 'https://evil.example' })).status).toBeGreaterThanOrEqual(400);
     expect(await passkeyCount(userId)).toBe(0);
+  });
+
+  it('an account with TOTP needs a recent second factor on this session: a social / magic-link session alone cannot add one', async () => {
+    const jar = new CookieJar();
+    const { userId, email } = await signUp(jar);
+    const { secret } = await enrollTotp(jar);
+    // A fresh session that never passed the second factor (social and magic-link sign-ins are not challenged).
+    await env.DB.prepare('UPDATE session SET twoFactorVerifiedAt = NULL WHERE userId = ?').bind(userId).run();
+    const device = new SoftAuthenticator(ISSUER.hostname, ISSUER.origin);
+    const opts = await call('/api/auth/passkey/generate-register-options', { jar });
+    expect(opts.status).toBe(403);
+    expect(await opts.json()).toMatchObject({ code: 'SECOND_FACTOR_REQUIRED' });
+    expect(await passkeyCount(userId)).toBe(0);
+
+    // A verification older than the re-authentication window does not count either.
+    await env.DB.prepare('UPDATE session SET twoFactorVerifiedAt = ? WHERE userId = ?').bind(new Date(Date.now() - 600_000).toISOString(), userId).run();
+    expect((await register(jar, device)).status).toBe(403);
+
+    // Step-up with the authenticator code, then the passkey can be added; the owner is told by mail.
+    expect((await call('/two-factor', { jar, form: { code: await totp(secret), oauth_query: '', return: '' } })).status).toBe(302);
+    expect((await register(jar, device)).status).toBe(200);
+    expect(await passkeyCount(userId)).toBe(1);
+    expect((await outbox(email)).map((m) => m.template)).toContain('passkey_added');
+  });
+
+  it('the registration endpoint checks on its own: options fetched with the second factor cannot be used after it lapsed', async () => {
+    const { userId, device } = await userWithPasskey();
+    const jar = new CookieJar();
+    expect((await passkeySignIn(jar, device)).status).toBe(200);
+    const opts = await call('/api/auth/passkey/generate-register-options', { jar });
+    expect(opts.status).toBe(200);
+    await env.DB.prepare('UPDATE session SET twoFactorVerifiedAt = NULL WHERE userId = ?').bind(userId).run();
+    const second = new SoftAuthenticator(ISSUER.hostname, ISSUER.origin);
+    const res = await call('/api/auth/passkey/verify-registration', { jar, json: { response: await second.create(await opts.json<{ challenge: string; user: { id: string } }>()), name: 'x' } });
+    expect(res.status).toBe(403);
+    expect(await passkeyCount(userId)).toBe(1);
+  });
+
+  it('an account with a passkey adds another only from a session that used a passkey (or passed TOTP) recently', async () => {
+    const { email, userId, device } = await userWithPasskey();
+    // Password session: no second factor.
+    const jar = new CookieJar();
+    await signIn(jar, email);
+    const second = new SoftAuthenticator(ISSUER.hostname, ISSUER.origin);
+    expect((await register(jar, second)).status).toBe(403);
+    expect(await passkeyCount(userId)).toBe(1);
+    // A passkey sign-in is itself the second factor.
+    const pk = new CookieJar();
+    expect((await passkeySignIn(pk, device)).status).toBe(200);
+    expect((await register(pk, second)).status).toBe(200);
+    expect(await passkeyCount(userId)).toBe(2);
+  });
+
+  it('the first passkey of an account without TOTP or passkeys needs no second factor (there is none yet)', async () => {
+    const jar = new CookieJar();
+    const { userId } = await signUp(jar);
+    expect((await session(jar))?.session.twoFactorVerifiedAt ?? null).toBeNull();
+    expect((await register(jar, new SoftAuthenticator(ISSUER.hostname, ISSUER.origin))).status).toBe(200);
+    expect(await passkeyCount(userId)).toBe(1);
   });
 
   it('needs a recent sign-in (5 minutes)', async () => {

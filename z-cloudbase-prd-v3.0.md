@@ -834,6 +834,8 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 
 - RP：`rpID` = `ISSUER` 的主机名，`origin` = `ISSUER` 的 origin（固定，不取请求头），`rpName` = `PLATFORM_NAME`。迁移 `0016` 建 `passkey` 表。
 - 注册（账号页 `/account` → “添加 Passkey”）：要求登录且 5 分钟内认证过（引擎 `freshSessionMiddleware`），`attestation=none`，`residentKey=preferred`，**`userVerification=required`**，服务端检查 UV 标志，未验证用户的注册被拒绝。匿名用户不能添加（Passkey 不是升级途径）。
+- 注册的第二因素前置条件（v3.1 安全修复）：账号已启用 TOTP 或已有至少一个 Passkey 时，`generate-register-options` 与 `verify-registration` 都要求**本会话在 5 分钟内通过过第二因素**（`twoFactorVerifiedAt` 在再认证窗口内：登录时或 `/two-factor` 步进验证输入了 TOTP / 备用码，或本会话由 Passkey 登录创建），否则 403，code `SECOND_FACTOR_REQUIRED`（提示先在 `/two-factor` 验证或用 Passkey 登录）。原因：社交登录与 Magic link 不经过 two-factor 插件的挑战，若只凭这类会话就能添加 Passkey，拿到用户社交账号的攻击者可先登记自己的 Passkey，再用它“满足”控制台 MFA。账号既没有 TOTP 也没有 Passkey 时，添加**第一个** Passkey 不要求第二因素（此前不存在第二因素，不构成降级），仍要求 5 分钟内认证过。
+- 添加成功后，若部署配置了邮件，向账号邮箱发送“账号添加了新的 Passkey”通知（中英双语，取请求语言；尽力而为，发送失败只记日志、不影响注册）。
 - 删除：账号页逐个删除，属于敏感操作（5 分钟内认证过，§19.4）。不限制删除最后一个 Passkey（Passkey 只是附加登录方式；账号至少保留一种凭据的规则针对 Provider 解绑）。
 - 登录：登录页“使用 Passkey 登录”（可发现凭据，不需输入邮箱）；在 OIDC 授权流程中带上签名的 `oauth_query`，登录成功后由引擎继续本次授权。服务端要求 UV 标志（未验证则 401）。挑战 5 分钟有效、一次性（引擎）。`generate-authenticate-options`（GET，会写挑战）与 `verify-authentication` 计入认证限流（§19.6，按 IP）。
 - **管理员 MFA**：经用户验证的 Passkey 本身是多因素（持有设备 + 生物识别 / PIN），因此 Passkey 登录创建的会话记为“已通过第二因素”，满足控制台的 MFA 要求；`REQUIRE_ADMIN_2FA=true` 时，已有 Passkey 的管理员可在第二因素页用 Passkey 完成验证，无需另设 TOTP；没有 TOTP 也没有 Passkey 的管理员仍被引导设置 TOTP，设置页也可改为添加 Passkey。已启用 TOTP 的用户用 Passkey 登录不再要求 TOTP。

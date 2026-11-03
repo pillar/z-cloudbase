@@ -15,7 +15,8 @@ export type EmailTemplate =
   | 'existing_account'
   | 'magic_link'
   | 'magic_link_unavailable'
-  | 'invitation';
+  | 'invitation'
+  | 'passkey_added';
 
 export interface EmailMessage {
   to: string;
@@ -74,6 +75,9 @@ const mailMessages = defineMessages({
     invite_subject: (name: string) => `你受邀加入 ${name}`,
     invite_intro: (name: string) => `你受邀在 ${name} 创建账号。通过下面的链接设置密码：`,
     invite_outro: (days: string) => `链接 ${days} 天内有效，只能使用一次。如果你不认识发件方，请忽略这封邮件。`,
+    passkey_subject: '你的账号添加了新的 Passkey',
+    passkey_intro: (name: string) => `你的 ${name} 账号刚刚添加了一个新的 Passkey，可以用它登录。`,
+    passkey_outro: (url: string) => `如果不是你本人操作，请立即登录账号页删除这个 Passkey 并修改密码：${url}`,
   },
   en: {
     verify_subject: 'Verify your email address',
@@ -97,6 +101,9 @@ const mailMessages = defineMessages({
     invite_subject: (name: string) => `You are invited to ${name}`,
     invite_intro: (name: string) => `You are invited to create an account on ${name}. Choose your password here:`,
     invite_outro: (days: string) => `The link expires in ${days} days and works once. If you do not know the sender, ignore this email.`,
+    passkey_subject: 'A passkey was added to your account',
+    passkey_intro: (name: string) => `A new passkey was just added to your ${name} account and can be used to sign in.`,
+    passkey_outro: (url: string) => `If this was not you, sign in now, remove the passkey on your account page and change your password: ${url}`,
   },
 });
 
@@ -131,6 +138,7 @@ export function renderEmail(m: EmailMessage, site: MailSite): { subject: string;
     magic_link: { subject: t.magic_subject, lines: [t.magic_intro(name), url, t.magic_outro] },
     magic_link_unavailable: { subject: t.magic2fa_subject, lines: [t.magic2fa_intro(name), t.magic2fa_signin(signIn)] },
     invitation: { subject: t.invite_subject(name), lines: [t.invite_intro(name), url, t.invite_outro(m.payload.days ?? '7')] },
+    passkey_added: { subject: t.passkey_subject, lines: [t.passkey_intro(name), t.passkey_outro(`${issuer}/account`)] },
   }[m.template];
   const color = site.brand?.primaryColor ?? null;
   const linkStyle = color ? ` style="color:${color}"` : '';

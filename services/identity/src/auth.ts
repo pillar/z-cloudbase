@@ -67,6 +67,8 @@ export interface AuthDeps {
   requireAdmin2fa?: boolean;
   /** Verification / reset mail; the local adapter writes the D1 outbox. */
   email?: EmailAdapter;
+  /** A mail transport is configured: optional notices (e.g. a passkey was added) are sent only then. */
+  mailAvailable?: boolean;
   /** Language of the request a mail is sent from (PRD §21.2); the engine's callbacks have no Hono context. */
   lang?: () => Lang;
   /** Registration mode and email verification (PRD §21.2); defaults: open, verification required. */
@@ -219,7 +221,7 @@ export function authOptions(deps: AuthDeps) {
       mfaPolicy({ db: deps.db }),
       ...(deps.passkeys === false
         ? []
-        : [passkeyPlugin({ issuer: deps.issuer, platformName: deps.platformName }), passkeyPolicy({ db: deps.db })]),
+        : [passkeyPlugin({ issuer: deps.issuer, platformName: deps.platformName }), passkeyPolicy({ db: deps.db, mail: deps.mailAvailable ? { email, lang } : null })]),
       ...(deps.magicLink ? magicLinkPlugins({ env: deps.magicLink.env, mode, email }) : []),
       oauthProvider({
         loginPage: '/login',
