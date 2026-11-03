@@ -107,5 +107,6 @@ export interface WebhookAttempt {
   latency_ms: number;
   error: string | null;
   response_snippet: string | null;
-  delivery_status: (typeof WEBHOOK_DELIVERY_STATUSES)[number];
+  /** Current state of the delivery this attempt belongs to (null once the delivery was pruned). */
+  delivery_status: (typeof WEBHOOK_DELIVERY_STATUSES)[number] | null;
 }

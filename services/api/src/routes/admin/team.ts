@@ -47,8 +47,12 @@ teamRoutes.post('/team', async (c) => {
   }
   authorizeTeamChange(c, body.role, body.product_id ?? null);
   if (body.product_id) await loadProduct(c, body.product_id);
-  const user = await c.env.DB.prepare('SELECT 1 AS x FROM "user" WHERE id = ? AND deletedAt IS NULL').bind(body.user_id).first();
+  const user = await c.env.DB.prepare(
+    `SELECT (banned = 1 AND (banExpires IS NULL OR banExpires > ?)) AS banned FROM "user" WHERE id = ? AND deletedAt IS NULL`,
+  ).bind(new Date().toISOString(), body.user_id).first<{ banned: number }>();
   if (!user) throw new ApiError('not_found', 'User not found');
+  // A banned user cannot sign in, let alone into the console (PRD §21.5.1).
+  if (user.banned) throw new ApiError('conflict', 'Banned users cannot join the team');
 
   const id = newId('tm');
   const now = Date.now();

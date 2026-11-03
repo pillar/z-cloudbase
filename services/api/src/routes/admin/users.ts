@@ -1,11 +1,14 @@
-import { ApiError, MEMBERSHIP_STATUSES } from '@z-cloudbase/contracts';
+import {
+  ApiError, BAN_MAX_DURATION_DAYS, BanUserRequest, IMPERSONATION_REQUEST_TTL_S, MEMBERSHIP_STATUSES, StartImpersonationRequest,
+  USER_EXPORT_COLUMNS, USER_EXPORT_PAGE_ROWS, newId,
+} from '@z-cloudbase/contracts';
 import { can, visibleProducts } from '@z-cloudbase/security';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { AppEnv } from '../../context.ts';
 import { identity } from '../../identity.ts';
 import { authorize } from '../../middleware/auth.ts';
-import { adminAudit, loadProduct, readJson, readQuery } from './util.ts';
+import { adminAudit, loadEnvId, loadProduct, parseEnv, readJson, readQuery, type C } from './util.ts';
 
 export const userRoutes = new Hono<AppEnv>();
 
@@ -21,7 +24,16 @@ interface UserRow {
   isAnonymous: number | null;
   createdAt: string | number;
   deletedAt: string | number | null;
+  banned: number | null;
+  banReason: string | null;
+  banExpires: string | null;
 }
+
+const USER_COLS = 'id, name, email, emailVerified, isAnonymous, createdAt, deletedAt, banned, banReason, banExpires';
+
+/** Ban in effect: flagged and not past its optional end (PRD §21.5.1). */
+const banActive = (u: { banned: number | null; banExpires: string | null }, now = Date.now()) =>
+  Boolean(u.banned) && (!u.banExpires || Date.parse(u.banExpires) > now);
 
 /**
  * Look up a global user by id or exact email. A platform-wide reader (owner) sees any user; a product
@@ -37,8 +49,8 @@ userRoutes.get('/users', async (c) => {
   }
 
   const user = q.user_id
-    ? await c.env.DB.prepare('SELECT id, name, email, emailVerified, isAnonymous, createdAt, deletedAt FROM "user" WHERE id = ?').bind(q.user_id).first<UserRow>()
-    : await c.env.DB.prepare('SELECT id, name, email, emailVerified, isAnonymous, createdAt, deletedAt FROM "user" WHERE lower(email) = ?').bind(q.email!.toLowerCase()).first<UserRow>();
+    ? await c.env.DB.prepare(`SELECT ${USER_COLS} FROM "user" WHERE id = ?`).bind(q.user_id).first<UserRow>()
+    : await c.env.DB.prepare(`SELECT ${USER_COLS} FROM "user" WHERE lower(email) = ?`).bind(q.email!.toLowerCase()).first<UserRow>();
   if (!user) throw new ApiError('not_found', 'User not found');
 
   const memberships = (
@@ -58,6 +70,12 @@ userRoutes.get('/users', async (c) => {
   await c.env.DB.batch([adminAudit(c, { action: 'user.lookup', targetType: 'user', targetId: user.id, metadata: { by: q.user_id ? 'user_id' : 'email' } })]);
   return c.json({
     user: { id: user.id, name: user.name, email: user.email, email_verified: !!user.emailVerified, is_anonymous: !!user.isAnonymous, created_at: user.createdAt, deleted_at: user.deletedAt },
+    // The ban reason is an internal note: only for callers who may ban.
+    ban: {
+      banned: banActive(user),
+      expires_at: banActive(user) ? user.banExpires : null,
+      ...(can(grants, 'users:ban') ? { reason: banActive(user) ? user.banReason : null } : {}),
+    },
     memberships,
     deletion_requests: deletionRequests,
   });
@@ -108,4 +126,145 @@ userRoutes.patch('/products/:id/memberships/:userId', async (c) => {
     await identity(c.env).revokeUserTokens({ userId, productId, reason: `membership ${body.status} by admin` });
   }
   return c.json({ user_id: userId, product_id: productId, status: body.status });
+});
+
+// --- Platform user management (PRD §21.5): ban / unban, impersonation requests, per-environment export ---
+
+/** A live (not deleted) user, or not_found. */
+async function liveUser(c: C, userId: string): Promise<UserRow> {
+  const user = await c.env.DB.prepare(`SELECT ${USER_COLS} FROM "user" WHERE id = ?`).bind(userId).first<UserRow>();
+  if (!user || user.deletedAt) throw new ApiError('not_found', 'User not found');
+  return user;
+}
+
+const isTeamMember = async (c: C, userId: string) =>
+  Boolean(await c.env.DB.prepare('SELECT 1 AS x FROM team_members WHERE user_id = ? LIMIT 1').bind(userId).first());
+
+/** Platform-wide ban (owner only). The identity worker writes the ban, audit and webhooks and revokes every session and token. */
+userRoutes.post('/users/:userId/ban', async (c) => {
+  authorize(c, 'users:ban');
+  const body = await readJson(c, BanUserRequest);
+  const user = await liveUser(c, c.req.param('userId'));
+  if (await isTeamMember(c, user.id)) throw new ApiError('conflict', 'Platform team members cannot be banned; remove them from the team first');
+  let expiresAt: string | null = null;
+  if (body.expires_at) {
+    const t = Date.parse(body.expires_at);
+    if (t <= Date.now() || t > Date.now() + BAN_MAX_DURATION_DAYS * 24 * 3600 * 1000) {
+      throw new ApiError('validation_failed', `expires_at must be in the future and at most ${BAN_MAX_DURATION_DAYS} days ahead`);
+    }
+    expiresAt = new Date(t).toISOString();
+  }
+  const result = await identity(c.env).setUserBan({
+    userId: user.id, actorId: c.get('admin').userId, requestId: c.get('requestId'), ban: { reason: body.reason, expiresAt },
+  });
+  return c.json({ user_id: user.id, banned: result.banned, expires_at: result.expires_at, reason: result.reason ?? null });
+});
+
+userRoutes.delete('/users/:userId/ban', async (c) => {
+  authorize(c, 'users:ban');
+  const user = await liveUser(c, c.req.param('userId'));
+  const result = await identity(c.env).setUserBan({ userId: user.id, actorId: c.get('admin').userId, requestId: c.get('requestId'), ban: null });
+  return c.json({ user_id: user.id, banned: false, changed: result.changed });
+});
+
+/**
+ * Request a support impersonation (owner with TOTP only). The owner confirms it on the identity domain
+ * with a current TOTP code (`url`) within IMPERSONATION_REQUEST_TTL_S; a newer request replaces an
+ * unconfirmed older one of the same owner.
+ */
+userRoutes.post('/users/:userId/impersonations', async (c) => {
+  authorize(c, 'users:impersonate');
+  const body = await readJson(c, StartImpersonationRequest);
+  const actorId = c.get('admin').userId;
+  const actor = await c.env.DB.prepare('SELECT twoFactorEnabled FROM "user" WHERE id = ?').bind(actorId).first<{ twoFactorEnabled: number | null }>();
+  if (!actor?.twoFactorEnabled) {
+    throw new ApiError('forbidden', 'Support sessions require two-factor authentication on your account', { reason: 'mfa_required' });
+  }
+  const user = await liveUser(c, c.req.param('userId'));
+  if (user.id === actorId) throw new ApiError('conflict', 'You cannot impersonate yourself');
+  if (await isTeamMember(c, user.id)) throw new ApiError('conflict', 'Platform team members cannot be impersonated');
+  if (banActive(user)) throw new ApiError('conflict', 'Banned users cannot be impersonated');
+  const id = newId('imp');
+  const now = Date.now();
+  const expiresAt = now + IMPERSONATION_REQUEST_TTL_S * 1000;
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE impersonations SET status = 'cancelled', ended_at = ?, end_reason = 'superseded' WHERE actor_id = ? AND status = 'pending'`)
+      .bind(now, actorId),
+    c.env.DB.prepare(
+      `INSERT INTO impersonations (id, actor_id, target_id, reason, status, created_at, request_expires_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    ).bind(id, actorId, user.id, body.reason, now, expiresAt),
+    adminAudit(c, { action: 'user.impersonation.request', targetType: 'user', targetId: user.id, metadata: { impersonation_id: id, reason: body.reason } }),
+  ]);
+  return c.json({ id, url: `${c.env.ISSUER}/impersonation/${id}`, expires_at: new Date(expiresAt).toISOString() }, 201);
+});
+
+const ExportQuery = z.object({
+  include_email: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  after: z.string().startsWith('usr_').max(64).optional(),
+});
+
+function iso(v: number | string | null | undefined): string {
+  if (v == null || v === '') return '';
+  const d = new Date(typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+/** CSV cell, quoted when needed; formula-looking values are neutralised with a leading quote (PRD §21.5.3). */
+function csvCell(value: unknown): string {
+  let s = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+interface ExportRow {
+  user_id: string;
+  isAnonymous: number | null;
+  email: string;
+  createdAt: string | number;
+  first_seen_at: number;
+  status: string | null;
+  joined_at: number | null;
+  last_seen_at: number | null;
+  providers: string | null;
+  banned: number;
+}
+
+/** The users of one product environment as CSV, USER_EXPORT_PAGE_ROWS per call (continue with `after` = X-Next-Cursor). */
+userRoutes.get('/products/:id/environments/:env/users/export', async (c) => {
+  const productId = c.req.param('id');
+  const env = parseEnv(c.req.param('env'));
+  authorize(c, 'users:read', { productId, env });
+  const q = readQuery(c, ExportQuery);
+  await loadProduct(c, productId);
+  const productEnvId = await loadEnvId(c, productId, env);
+  const { results } = await c.env.DB.prepare(
+    `SELECT peu.user_id, u.isAnonymous, u.email, u.createdAt, peu.first_seen_at, m.status, m.joined_at, m.last_seen_at,
+       (SELECT group_concat(p, ';') FROM (SELECT DISTINCT a.providerId AS p FROM account a WHERE a.userId = u.id ORDER BY 1)) AS providers,
+       (u.banned = 1 AND (u.banExpires IS NULL OR u.banExpires > ?)) AS banned
+     FROM product_env_users peu JOIN "user" u ON u.id = peu.user_id
+     LEFT JOIN product_memberships m ON m.user_id = peu.user_id AND m.product_id = ?
+     WHERE peu.product_env_id = ? AND u.deletedAt IS NULL AND peu.user_id > ?
+     ORDER BY peu.user_id LIMIT ?`,
+  ).bind(new Date().toISOString(), productId, productEnvId, q.after ?? '', USER_EXPORT_PAGE_ROWS + 1).all<ExportRow>();
+  const more = results.length > USER_EXPORT_PAGE_ROWS;
+  const rows = results.slice(0, USER_EXPORT_PAGE_ROWS);
+  const header = [...USER_EXPORT_COLUMNS, ...(q.include_email ? ['email'] : [])];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    const cells: unknown[] = [
+      r.user_id, Boolean(r.isAnonymous), iso(r.createdAt), iso(r.first_seen_at), r.status ?? '', iso(r.joined_at), iso(r.last_seen_at),
+      r.providers ?? '', Boolean(r.banned),
+    ];
+    if (q.include_email) cells.push(r.isAnonymous ? '' : r.email);
+    lines.push(cells.map(csvCell).join(','));
+  }
+  await c.env.DB.batch([adminAudit(c, {
+    action: 'user.export', productId, env, targetType: 'product_environment', targetId: productEnvId,
+    metadata: { rows: rows.length, include_email: q.include_email, after: q.after ?? null, truncated: more },
+  })]);
+  if (more) c.header('X-Next-Cursor', rows[rows.length - 1]!.user_id);
+  c.header('Content-Type', 'text/csv; charset=utf-8');
+  c.header('Content-Disposition', `attachment; filename="${productId}-${env}-users.csv"`);
+  c.header('Cache-Control', 'no-store');
+  return c.body(`${lines.join('\r\n')}\r\n`);
 });

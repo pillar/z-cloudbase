@@ -20,6 +20,8 @@ export interface UserContext {
   userId: string;
   anon: boolean;
   sessionId: string;
+  /** The platform owner acting as this user (token `act.sub`), during a support impersonation (PRD §21.5.2). */
+  actor?: string;
 }
 
 /** Console principal from a verified console token, with RBAC grants from team_members. */
