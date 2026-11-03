@@ -54,18 +54,25 @@ Administrator (the password is shown only now — store it in a password manager
 | `--name` | `z-cloudbase` | 平台显示名：登录页、邮件、TOTP 发行方、控制台 |
 | `--domain` | workers.dev | 使用该域名下的 `id.` / `api.` / `console.` 子域 |
 | `--prefix` | `z-cloudbase` | 资源名前缀；同一账号部署多套平台时用不同前缀 |
-| `--require-admin-2fa` | `false` | `true` 表示管理员必须先绑定 TOTP 才能使用控制台 |
+| `--require-admin-2fa` | `false` | `true` 表示管理员使用控制台前必须通过第二因素（TOTP，或用 Passkey 登录） |
+| `--signup-mode` | `open` | `open`：任何人可注册；`invite`：只能凭控制台“邀请”页发出的邀请注册；`closed`：不再创建账号。非 `open` 时游客和新的 Google / Apple / Magic link 用户也被拒绝 |
+| `--require-email-verification` | `true` | `false` 允许未验证邮箱的用户用密码登录（没有邮件时接受邮箱注册的唯一方式；此时任何人都能用别人的邮箱注册，`email_verified` 为 `false`） |
+| `--default-lang` | `en` | 浏览器既不要求 `zh` 也不要求 `en` 时登录页和邮件的语言 |
+| `--passkeys` / `--magic-link` | `true` | Passkey 登录；邮件登录链接（只在配置了邮件时出现） |
+| `--logo-url` | | 登录页、邮件和控制台使用的 `https://` logo |
+| `--primary-color` | 靛蓝 | 登录页、邮件链接和控制台的主色（`#4f46e5`） |
+| `--tagline` | | 登录页标题下的一行文案（≤ 200 字符） |
 | `--account-id` | 唯一的账号 | 登录身份下有多个账号时指定 |
 | `--location` | 自动 | D1 / R2 位置提示（`weur`、`enam` 等） |
 | `--dry-run` | | 只生成配置并构建，不创建、不上传 |
 
 ### 可选集成
 
-在执行部署命令的环境变量里设置以下值，会作为 Worker secret 上传。之后的部署没有再设置时，保留已有的值。部署结束时会列出仍未配置的项。
+在执行部署命令的环境变量里设置以下值：密钥作为 Worker secret 上传，其余邮件设置保存在 `.deploy/<prefix>.json`。之后的部署没有再设置时，保留已有的值。部署结束时会列出仍未配置的项。
 
 | 环境变量 | 开启的能力 | 不配置时 |
 |---|---|---|
-| `RESEND_API_KEY` + `EMAIL_FROM` | 验证邮件与找回密码邮件（[Resend](https://resend.com)） | 用户无法用邮箱密码注册或找回密码（游客和管理员不受影响） |
+| `EMAIL_FROM` + 一种发送方式：`RESEND_API_KEY`（[Resend](https://resend.com)），或 `EMAIL_TRANSPORT=smtp` + `SMTP_HOST` [`SMTP_PORT`=465、`SMTP_USERNAME`、`SMTP_PASSWORD`]，或 `EMAIL_TRANSPORT=cloudflare` | 验证、找回密码、登录链接和邀请邮件。SMTP 在 Workers Free 可用（只支持隐式 TLS，不支持 STARTTLS 和 25 端口）；Cloudflare Email Service 需要 Workers Paid 且发件域名已接入 | 默认要求邮箱验证时：无法用邮箱密码注册、找回密码或使用登录链接（游客、社交登录和管理员不受影响） |
 | `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY` | 3 次登录失败后出现人机验证 | 只有登录限流 |
 | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` | 文件上传 / 下载（R2 S3 预签名；需要对 `<prefix>-storage` 有对象读写权限的 R2 API token） | 存储接口返回 `unavailable` |
 | `CF_ANALYTICS_API_TOKEN` | 控制台分析图表（Account Analytics: Read） | 事件照常采集，但无法查询 |
@@ -92,7 +99,8 @@ pnpm platform:destroy --prefix <prefix>              # 要求输入前缀确认�
 ### 管理员
 
 - 更多管理员和产品角色（`owner`、`operator`、`product_admin`、`product_developer`）在控制台的“团队”页管理。
-- TOTP 默认可选，管理员可以在身份域的 `/account` 页面开启。开启后，每次登录控制台都要输入验证码。
+- TOTP 默认可选，管理员可以在身份域的 `/account` 页面开启。开启后，每次登录控制台都要输入验证码。在 `/account` 添加的 Passkey 也算：用它登录即满足控制台的第二因素要求。
+- `--signup-mode invite` 时，所有者在控制台“邀请”页邀请用户；邀请链接发到受邀邮箱（没有配置邮件时只显示一次）。
 - 忘记密码或丢失认证器（不需要邮件服务）：
 
   ```sh

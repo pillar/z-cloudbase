@@ -17,6 +17,8 @@ export const REAUTH_PATHS: ReadonlySet<string> = new Set([
   '/change-email',
   '/delete-user',
   '/two-factor/disable',
+  // Removing a passkey (PRD §21.3); adding one already needs the engine's fresh session.
+  '/passkey/delete-passkey',
 ]);
 
 /** A session is fresh when it was created (i.e. the user authenticated) within REAUTH_WINDOW_S. */

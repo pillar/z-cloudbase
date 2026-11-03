@@ -22,9 +22,13 @@ import { twoFactor } from 'better-auth/plugins/two-factor';
 import { accountPolicy } from './account-policy.ts';
 import { writeAudit } from './audit.ts';
 import { unconfiguredEmailAdapter, type EmailAdapter } from './email.ts';
+import { magicLinkPlugins } from './magic-link.ts';
 import { mfaPolicy } from './mfa-policy.ts';
 import { oauthPolicy } from './oauth-policy.ts';
+import { passkeyPlugin, passkeyPolicy } from './passkey.ts';
 import { revokeOAuthTokens } from './revoke.ts';
+import type { Lang, SignupMode } from './settings.ts';
+import { signupPolicy } from './signup-policy.ts';
 import { verifiedIdTokens } from './social.ts';
 import { systemPrincipal } from './system.ts';
 
@@ -62,6 +66,17 @@ export interface AuthDeps {
   requireAdmin2fa?: boolean;
   /** Verification / reset mail; the local adapter writes the D1 outbox. */
   email?: EmailAdapter;
+  /** Language of the request a mail is sent from (PRD §21.2); the engine's callbacks have no Hono context. */
+  lang?: () => Lang;
+  /** Registration mode and email verification (PRD §21.2); defaults: open, verification required. */
+  signupMode?: SignupMode;
+  requireEmailVerification?: boolean;
+  /** Email / Password sign-up can work at all (false when verification is required but no mail transport exists). */
+  emailSignupAvailable?: boolean;
+  /** Passkeys (PRD §21.3); default on. */
+  passkeys?: boolean;
+  /** Magic link (PRD §21.3) with the deployment env (mail language); only when a mail transport exists. */
+  magicLink?: { env: Env } | null;
 }
 
 /**
@@ -75,6 +90,9 @@ const ID_PREFIX: Record<string, string> = { session: 'ses', account: 'acc' };
 
 export function authOptions(deps: AuthDeps) {
   const email = deps.email ?? unconfiguredEmailAdapter;
+  const lang = () => deps.lang?.();
+  const mode = deps.signupMode ?? 'open';
+  const requireVerification = deps.requireEmailVerification ?? true;
   return {
     appName: deps.platformName,
     baseURL: deps.issuer,
@@ -89,13 +107,15 @@ export function authOptions(deps: AuthDeps) {
       // Anti-enumeration: with auto sign-in off the engine answers sign-up identically whether or
       // not the email is registered; the owner of an existing account gets a notice instead.
       autoSignIn: false,
+      // PRD §21.2: unverified addresses cannot sign in with a password (a new link is mailed on the attempt).
+      requireEmailVerification: requireVerification,
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: 3600,
       async sendResetPassword({ user, url }) {
-        await email.send({ to: user.email, template: 'reset_password', payload: { url } });
+        await email.send({ to: user.email, template: 'reset_password', payload: { url }, lang: lang() });
       },
       async onExistingUserSignUp({ user }) {
-        await email.send({ to: user.email, template: 'existing_account', payload: {} });
+        await email.send({ to: user.email, template: 'existing_account', payload: {}, lang: lang() });
       },
       // Sessions are revoked by the engine; product refresh tokens go too (PRD §4.2 item 6).
       async onPasswordReset({ user }) {
@@ -112,9 +132,10 @@ export function authOptions(deps: AuthDeps) {
     },
     emailVerification: {
       sendOnSignUp: true,
+      sendOnSignIn: requireVerification,
       expiresIn: 3600,
       async sendVerificationEmail({ user, url }) {
-        await email.send({ to: user.email, template: 'verify_email', payload: { url } });
+        await email.send({ to: user.email, template: 'verify_email', payload: { url }, lang: lang() });
       },
     },
     socialProviders: deps.socialProviders ?? {},
@@ -172,6 +193,8 @@ export function authOptions(deps: AuthDeps) {
       },
     },
     plugins: [
+      // Registration modes first: they refuse sign-up before any other plugin acts on it (PRD §21.2).
+      signupPolicy({ mode, emailSignupAvailable: deps.emailSignupAvailable ?? true }),
       anonymous({
         // PRD §19.7: on conflict the anonymous account is kept unchanged until reclaimed.
         disableDeleteAnonymousUser: true,
@@ -193,6 +216,10 @@ export function authOptions(deps: AuthDeps) {
       // disabling for users who have one.
       twoFactor({ issuer: deps.platformName, allowPasswordless: true }),
       mfaPolicy({ db: deps.db }),
+      ...(deps.passkeys === false
+        ? []
+        : [passkeyPlugin({ issuer: deps.issuer, platformName: deps.platformName }), passkeyPolicy({ db: deps.db })]),
+      ...(deps.magicLink ? magicLinkPlugins({ env: deps.magicLink.env, mode, email }) : []),
       oauthProvider({
         loginPage: '/login',
         consentPage: '/consent',

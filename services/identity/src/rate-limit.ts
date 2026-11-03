@@ -21,6 +21,12 @@ export const RATE_LIMITED_PATHS = [
   '/two-factor',
   '/two-factor/*',
   '/login',
+  // Magic link requests and social sign-in starts from the sign-in page (PRD §21.3). Not `/login/*`:
+  // in Hono that pattern matches `/login` as well, which would count each sign-in twice.
+  '/login/magic-link',
+  '/login/social',
+  // Passkey assertions (PRD §21.3); the options request (GET) is limited in index.ts.
+  '/api/auth/passkey/verify-authentication',
   '/register',
   '/forgot-password',
   '/reset-password',

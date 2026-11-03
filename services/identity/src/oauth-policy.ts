@@ -6,7 +6,7 @@ import { getOAuthProviderApi } from '@better-auth/oauth-provider';
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { writeAudit } from './audit.ts';
-import { consoleMfaStep } from './mfa-policy.ts';
+import { consoleMfaStep, hasPasskey } from './mfa-policy.ts';
 
 type Decision = { allow: true } | { allow: false; reason: string };
 
@@ -115,7 +115,7 @@ export function oauthPolicy(deps: { db: D1Database; issuer: string; requireAdmin
               // this authorization afterwards.
               const session = await getSessionFromCtx(ctx);
               if (!session) return; // the engine sends the user to /login; this hook runs again on resume
-              const step = consoleMfaStep(session, deps.requireAdmin2fa);
+              const step = consoleMfaStep(session, deps.requireAdmin2fa, deps.requireAdmin2fa && (await hasPasskey(db, session.user.id)));
               if (!step) return;
               const page = step === 'setup' ? '/two-factor/setup' : '/two-factor';
               return redirectTo(ctx, `${deps.issuer}${page}?${new URLSearchParams({ return: authorizeAgain(ctx.query ?? {}) })}`);

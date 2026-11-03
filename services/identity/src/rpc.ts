@@ -1,9 +1,12 @@
-import { ApiError, ENVIRONMENTS, PRODUCT_ID_RE, type IdentityRpcApi } from '@z-cloudbase/contracts';
+import {
+  ApiError, CreateInvitationRequest, ENVIRONMENTS, ListInvitationsQuery, PRODUCT_ID_RE, type IdentityRpcApi, type RpcResult,
+} from '@z-cloudbase/contracts';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import { writeAudit } from './audit.ts';
 import { upsertProductClient } from './clients.ts';
 import { getAuth } from './instance.ts';
+import { createInvitation, listInvitations, revokeInvitation } from './invitations.ts';
 import { productClientIds, revokeAll, revokeOAuthTokens } from './revoke.ts';
 
 const UserId = z.string().startsWith('usr_');
@@ -18,6 +21,24 @@ const UpsertClientInput = z.object({
 const RevokeInput = z.object({ userId: UserId, productId: z.string().regex(PRODUCT_ID_RE).optional(), reason: Reason });
 const DeleteInput = z.object({ userId: UserId, reason: Reason });
 const ExportInput = z.object({ userId: UserId });
+const Actor = { actorId: UserId, requestId: z.string().max(100).optional() };
+const CreateInvitationInput = z.object({
+  email: CreateInvitationRequest.shape.email,
+  expiresInDays: CreateInvitationRequest.shape.expires_in_days,
+  lang: CreateInvitationRequest.shape.lang,
+  ...Actor,
+});
+const RevokeInvitationInput = z.object({ id: z.string().startsWith('inv_').max(100), ...Actor });
+
+/** Platform errors as data (RpcResult): Workers RPC would only carry the message of a thrown ApiError. */
+async function result<T>(run: () => Promise<T>): Promise<RpcResult<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false, error: { code: e.code, message: e.message } };
+    throw e;
+  }
+}
 
 function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
@@ -75,6 +96,8 @@ export class IdentityRpc extends WorkerEntrypoint<Env> implements IdentityRpcApi
     await ctx.adapter.deleteMany({ model: 'oauthConsent', where: [{ field: 'userId', value: userId }] });
     // Second factor (TOTP secret, backup codes) and unused export links go with the credentials.
     await ctx.adapter.deleteMany({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] });
+    // Passkeys are credentials too (PRD §21.3); the tombstone row stays, so no cascade removes them.
+    await this.env.DB.prepare('DELETE FROM passkey WHERE userId = ?').bind(userId).run();
     await this.env.DB.prepare('DELETE FROM export_links WHERE user_id = ?').bind(userId).run();
     await ctx.internalAdapter.updateUser(userId, {
       email: tombstoneEmail(userId),
@@ -113,5 +136,23 @@ export class IdentityRpc extends WorkerEntrypoint<Env> implements IdentityRpcApi
       created_at: new Date(user.createdAt).toISOString(),
       providers: [...new Set(accounts.map((a) => a.providerId))].sort(),
     };
+  }
+
+  // --- invitations (PRD §21.2); callers authorize (platform:manage) and pass the acting admin ---
+
+  async createInvitation(input: Parameters<IdentityRpcApi['createInvitation']>[0]) {
+    const i = parse(CreateInvitationInput, input);
+    return result(() =>
+      createInvitation(this.env, { email: i.email, expiresInDays: i.expiresInDays, lang: i.lang, actorId: i.actorId, requestId: i.requestId }),
+    );
+  }
+
+  async listInvitations(input: Parameters<IdentityRpcApi['listInvitations']>[0]) {
+    return listInvitations(this.env.DB, parse(ListInvitationsQuery, input));
+  }
+
+  async revokeInvitation(input: Parameters<IdentityRpcApi['revokeInvitation']>[0]) {
+    const i = parse(RevokeInvitationInput, input);
+    return result(() => revokeInvitation(this.env.DB, i));
   }
 }

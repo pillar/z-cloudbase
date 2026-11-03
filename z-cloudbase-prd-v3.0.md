@@ -694,7 +694,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 | 依赖 | 生产 | 本地 / 测试 | 何时验证生产路径 |
 |---|---|---|---|
 | Google / Apple | 真实 OIDC | 仓库内 Mock OIDC Provider（可签发带 `email_verified`、private relay 邮箱、错误 nonce 等场景的 id_token） | 拿到开发者账号后（D10） |
-| 邮件 | Resend Adapter（D13） | `outbox` Adapter，邮件写入 D1 表供测试读取 | 远程部署 |
+| 邮件 | 部署选择的发送方式（§21.2：Resend HTTP / SMTP / Cloudflare `send_email` 绑定） | `outbox` Adapter，邮件写入 D1 表供测试读取；SMTP 与 `send_email` 另用本地假对端 / 假绑定在协议边界测试 | 远程部署 |
 | R2 预签名 | S3 兼容预签名（`aws4fetch`） | Miniflare 没有 S3 端点，改用 `dev` 模式专用的 Worker 签名上传路由，只在本地 / 测试注册 | 远程部署 |
 | Analytics Engine 查询 | AE SQL API | 实现同一 `AnalyticsQuery` 接口的 D1 替身 | 远程部署 |
 | 认证限流 / 采集限流 / Turnstile | 认证：D1 计数器；采集：Cloudflare Rate Limiting 绑定（软限制）；Turnstile siteverify | 同一 D1 计数器（Miniflare）/ 本地绑定模拟 / Turnstile 官方测试 key | 远程部署 |
@@ -708,7 +708,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 | 功能 | 规格 |
 |---|---|
 | Turnstile | v3.0：可选，部署方配置 site key 与 secret 后启用；未配置时不触发挑战，只有认证限流。启用时：同一账号或同一 IP 在 15 分钟内认证失败达到 3 次后（失败包括：密码错误的登录，按账号和 IP 计数；无效或过期的重置 token，只按 IP 计数。申请重置链接不计入，因为该接口对已注册和未注册的邮箱响应相同，以防枚举），登录、注册、找回密码、匿名升级到 Email 都必须附带有效的 Turnstile token。服务端通过验证接口 Adapter 校验：生产调用 siteverify；本地 / 测试使用替身，不访问网络。失败计数只保存账号哈希和 IP 哈希。 |
-| 管理员 MFA | v3.0：TOTP 默认可选，管理员可在身份域账号页自行开启。已开启 TOTP 的管理员，控制台 client `platform_console` 的授权要求本次身份域会话通过了第二因素。部署开关 `REQUIRE_ADMIN_2FA=true` 时，未启用 TOTP 的管理员先被引导到身份域的 MFA 设置页（提供备用码）。产品 client 不受影响。丢失认证器时由运营者执行 `platform:reset-admin --disable-2fa`（§20.3）。 |
+| 管理员 MFA | v3.0：TOTP 默认可选，管理员可在身份域账号页自行开启。已开启 TOTP 的管理员，控制台 client `platform_console` 的授权要求本次身份域会话通过了第二因素（v3.1：经用户验证的 Passkey 登录也算，见 §21.3）。部署开关 `REQUIRE_ADMIN_2FA=true` 时，未启用 TOTP 的管理员先被引导到身份域的 MFA 设置页（提供备用码）。产品 client 不受影响。丢失认证器时由运营者执行 `platform:reset-admin --disable-2fa`（§20.3）。 |
 | 一次性导出链接 | 用户中心为已完成的导出生成下载链接，有效期 15 分钟，只能使用一次（服务端记录消费状态）。生成链接仍要求 5 分钟内重新登录过。生成和下载都写审计。 |
 | 每日上传配额 | 按产品环境、按 UTC 日统计当天创建的上传字节数（默认 1 GB，可配置），超过则返回 `quota_exceeded`。 |
 | 扩展名白名单 | 按产品环境配置，与 MIME 白名单同时生效。白名单为空表示不限制。文件名必须带扩展名，按最后一个扩展名、小写比较；点开头的隐藏文件（如 `.txt`）和以点结尾的文件名都视为没有扩展名。 |
@@ -787,18 +787,89 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 - 邮件不再只有 Resend 一种：增加至少一种无需第三方 HTTP 服务的发送方式（SMTP 或 Cloudflare 原生发信，以官方文档核实的能力为准）。
 - 注册模式（部署配置）：开放注册且要求邮箱验证（有邮件时的默认）、开放注册不验证邮箱、仅邀请注册。
 
-（待补充规格）
+**邮件发送方式**（identity 变量 `EMAIL_TRANSPORT`，发件地址统一用变量 `EMAIL_FROM`；`DEPLOY_ENV=local` 时始终写 D1 outbox）：
+
+| `EMAIL_TRANSPORT` | 配置 | 能力与限制（官方文档，2026-11-04 核实） |
+|---|---|---|
+| `resend` | secret `RESEND_API_KEY` | 第三方 HTTP API（D13）。未设 `EMAIL_TRANSPORT` 但有 `RESEND_API_KEY` 时按 `resend` 处理（兼容 v3.0） |
+| `smtp` | 变量 `SMTP_HOST`、`SMTP_PORT`（默认 465）、`SMTP_USERNAME`；secret `SMTP_PASSWORD` | 经 `cloudflare:sockets` 连接任意 SMTP 服务（库：`worker-mailer`，MIT），Workers Free 可用；Workers 不能连 25 端口。**只支持隐式 TLS（465 端口类）**：该库的 STARTTLS 是“服务器声明支持才升级”，中间人去掉声明即可让凭据明文发送，因此不提供 STARTTLS 选项。TLS 握手与真实投递只能远程验证 |
+| `cloudflare` | `send_email` 绑定 `SEND_EMAIL`（部署脚本在选择该方式时生成） | Cloudflare Email Service（Email Sending，Beta）：向任意收件人发信需要 **Workers Paid** 且发件域名已接入 Email Service；Free 套餐只能发给账号内已验证的目标地址，不能用于用户邮件。错误以 `E_*` code 抛出 |
+
+- 未配置任何方式时邮件为“不可用”：依赖邮件的功能按下表关闭，而不是在请求中途失败。发送失败返回 503 `unavailable`（日志不含收件人、密钥或服务器原始应答）。
+- 邮件语言：取**触发该邮件的请求**的界面语言（§21.4 的选择顺序）；没有请求上下文时（如控制台创建邀请）取创建者在控制台选择的语言，否则取部署默认语言。平台不额外保存用户语言。
+
+**注册模式**（identity 变量）：
+
+| 变量 | 取值 | 默认 |
+|---|---|---|
+| `SIGNUP_MODE` | `open`：任何人可创建账号；`invite`：只能凭邀请链接创建 Email / Password 账号；`closed`：不再创建任何账号 | `open` |
+| `REQUIRE_EMAIL_VERIFICATION` | `true`：邮箱未验证不能用密码登录（引擎 `requireEmailVerification`，登录时自动补发验证邮件）；`false`：运营者选择不验证 | `true` |
+
+| 能力 | `open` | `invite` | `closed` |
+|---|---|---|---|
+| Email / Password 注册（`/register`、引擎 `/sign-up/email`） | 可用；但要求验证且邮件不可用时关闭 | 只能凭有效邀请 | 关闭 |
+| 游客（匿名，`/guest`、`/sign-in/anonymous`） | 可用 | 关闭（否则匿名账号再绑定邮箱即可绕过邀请） | 关闭 |
+| Google / Apple 新用户 | 可用 | 关闭（已绑定的账号照常登录） | 关闭（同左） |
+| Magic link 新用户（§21.3） | 可用 | 关闭（已有账号照常登录） | 关闭（同左） |
+| 已有账号登录、已有匿名账号升级 | 可用 | 可用 | 可用 |
+
+- 关闭的入口：表单页显示“当前不开放注册”；JSON 调用返回 403 `forbidden`，`details.reason = "signup_closed"`（`/guest` 同）；引擎端点由引擎返回其自身错误。所有新建用户还经过引擎 `user.create.before` 钩子兜底（非 `open` 模式下没有有效邀请的新建一律拒绝）；运营初始化接口（§20.3）不受注册模式影响。
+- `REQUIRE_EMAIL_VERIFICATION=true` 且邮件不可用：Email / Password 注册、匿名升级到 Email（`/link/email`）、Magic link 都不可用；需要接受邮箱注册的无邮件部署必须显式设为 `false`。**风险**：不验证时任何人都可以用他人邮箱注册（只能证明知道密码，不能证明拥有邮箱），id_token 的 `email_verified` 为 `false`，产品不得把此类邮箱当作已验证身份；平台本身从不按邮箱合并账号。
+
+**邀请**（`SIGNUP_MODE=invite` 时用于注册；其他模式下也可创建，但只有 `invite` 模式要求它）：
+
+- 数据：D1 `invitations`（迁移 `0015`）：`id`（`inv_` + UUIDv7）、`email`（小写）、`token_hash`（SHA-256，链接 token 为 32 字节随机数 base64url，不存明文）、`delivery`（`email` / `link`）、`created_by`、`created_at`、`expires_at`、`used_at`、`used_by`、`revoked_at`、`revoked_by`。状态由字段推出：`pending` / `used` / `revoked` / `expired`。
+- 有效期：`expires_in_days` 1–30，默认 7；只能使用一次（条件 UPDATE 原子占用；注册失败时释放）。
+- 管理：identity RPC `createInvitation` / `listInvitations` / `revokeInvitation`；api `POST /v1/admin/invitations`、`GET /v1/admin/invitations`、`DELETE /v1/admin/invitations/:id`，均要求 `platform:manage`（仅 owner；operator 不可见，因邀请含邮箱）。控制台“平台 → 邀请”页。
+- 创建规则：该邮箱已有账号 → 409 `conflict`；已有未过期、未使用、未撤销的邀请 → 409 `conflict`（先撤销再建）。邮件可用时链接**只通过邮件发送**（`delivery=email`），兑现即视为证明拥有该邮箱，账号创建为“邮箱已验证”；邮件不可用时链接只在创建响应中返回一次（`delivery=link`），由管理员自行转交，兑现不证明邮箱，若此时 `REQUIRE_EMAIL_VERIFICATION=true` 则拒绝创建（400 `invalid_request`）。
+- 兑现：`GET /register?invite=<token>` 显示固定邮箱的注册表单；无效、过期、已用、已撤销都显示同一个“邀请无效或已过期”页面。
+- 审计：`invitation.create`、`invitation.revoke`（actor 为管理员，写在 identity，`request_id` 透传）、`auth.invitation_redeemed`（actor 为新用户）。元数据只有邀请 id、`delivery`、有效期，不含 token。
+- 列表：按创建时间倒序，`limit` 1–200（默认 50）、`offset`，可按 `status` 过滤。
+
+**部署脚本**：`--signup-mode open|invite|closed`、`--require-email-verification true|false`；邮件从环境变量读取（`EMAIL_TRANSPORT`、`EMAIL_FROM`、`RESEND_API_KEY` 或 `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD`），非密钥设置保存在部署记录中，下次运行不提供时沿用；未配置邮件时在结束时列出。
 
 ### 21.3 Passkey 与 Magic link
 
-（待补充规格）
+**Passkey**（Better Auth `@better-auth/passkey` 1.7.7，底层 SimpleWebAuthn；身份域变量 `PASSKEYS`，默认 `true`）：
+
+- RP：`rpID` = `ISSUER` 的主机名，`origin` = `ISSUER` 的 origin（固定，不取请求头），`rpName` = `PLATFORM_NAME`。迁移 `0016` 建 `passkey` 表。
+- 注册（账号页 `/account` → “添加 Passkey”）：要求登录且 5 分钟内认证过（引擎 `freshSessionMiddleware`），`attestation=none`，`residentKey=preferred`，**`userVerification=required`**，服务端检查 UV 标志，未验证用户的注册被拒绝。匿名用户不能添加（Passkey 不是升级途径）。
+- 删除：账号页逐个删除，属于敏感操作（5 分钟内认证过，§19.4）。不限制删除最后一个 Passkey（Passkey 只是附加登录方式；账号至少保留一种凭据的规则针对 Provider 解绑）。
+- 登录：登录页“使用 Passkey 登录”（可发现凭据，不需输入邮箱）；在 OIDC 授权流程中带上签名的 `oauth_query`，登录成功后由引擎继续本次授权。服务端要求 UV 标志（未验证则 401）。挑战 5 分钟有效、一次性（引擎）。`generate-authenticate-options`（GET，会写挑战）与 `verify-authentication` 计入认证限流（§19.6，按 IP）。
+- **管理员 MFA**：经用户验证的 Passkey 本身是多因素（持有设备 + 生物识别 / PIN），因此 Passkey 登录创建的会话记为“已通过第二因素”，满足控制台的 MFA 要求；`REQUIRE_ADMIN_2FA=true` 时，已有 Passkey 的管理员可在第二因素页用 Passkey 完成验证，无需另设 TOTP；没有 TOTP 也没有 Passkey 的管理员仍被引导设置 TOTP，设置页也可改为添加 Passkey。已启用 TOTP 的用户用 Passkey 登录不再要求 TOTP。
+- 审计：`auth.passkey_added`、`auth.passkey_removed`（metadata 只含 passkey id）。删除全局账号时一并删除 Passkey。
+- 浏览器端仪式脚本由 identity 以同源静态资源 `/assets/passkey.js` 提供（不引入第三方脚本）。
+
+**Magic link**（Better Auth `magicLink` 插件；变量 `MAGIC_LINK`，默认 `true`，但只在邮件可用时出现）：
+
+- 登录页“通过邮件登录”：无论邮箱是否存在、是否允许注册，页面都显示同一“请查收邮件”（防枚举）；限流与密码登录相同（每 IP 10 次 / 分钟、每账号 5 次 / 分钟，§19.6）。
+- 链接：token 32 字符随机串，库中只存哈希，**5 分钟**有效，只能使用一次（引擎原子消费）。回调只允许同源路径：`/account`、`/login`（失败页）或本 issuer 的 `/api/auth/oauth2/authorize?...`（继续授权，去掉 `prompt=login`）；其他回调 400。
+- 注册模式：只有 `open` 时会为不存在的邮箱创建账号（邮箱已验证）；`invite` / `closed` 下不发送链接。
+- 已启用 TOTP 的账号：不发送登录链接，改发一封说明“该账号需用密码 + 验证码或 Passkey 登录”的邮件（邮件持有不能绕过第二因素）。
+- Magic link 登录不满足控制台 MFA（与社交登录相同，仍需 TOTP / Passkey 步骤）。
+- 审计：不单独记录（与密码登录一致，由会话记录体现）。
 
 ### 21.4 品牌定制与登录页多语言
 
 - 品牌：logo、主色、登录页文案，部署配置。
 - 登录页（identity UI）中英双语，按浏览器语言选择、可切换。
 
-（待补充规格）
+**品牌**（部署配置；identity 变量与控制台构建变量同源，由 `pnpm platform:deploy` 写入并存入部署记录）：
+
+| 项 | identity 变量 / 控制台变量 | 部署脚本 | 校验 |
+|---|---|---|---|
+| Logo | `BRAND_LOGO_URL` / `VITE_BRAND_LOGO_URL` | `--logo-url` | 只接受 `https:` 绝对 URL，≤ 2048 字符，不含空白、引号、尖括号、反斜杠 |
+| 主色 | `BRAND_PRIMARY_COLOR` / `VITE_BRAND_PRIMARY_COLOR` | `--primary-color` | `#rgb` 或 `#rrggbb` |
+| 登录页标语 | `SIGNIN_TAGLINE`（只用于 identity） | `--tagline` | ≤ 200 字符，不含换行；作为纯文本输出（转义） |
+
+- 部署脚本对非法值直接报错；运行时再校验一次，非法值按未设置处理（默认外观），绝不原样输出。HTML 中的值全部经转义；颜色只在通过正则后写入 CSS。
+- 应用位置：identity 的全部页面（logo、主色、标语只在登录页）、邮件（HTML 版的 logo 与链接颜色）、控制台（侧栏与登录等待页的 logo、`--primary` 主色）。
+
+**多语言**（identity 页面与邮件，`zh` / `en`）：
+
+- 选择顺序：`?lang=zh|en`（设置 Cookie `zcb_lang`，一年，`SameSite=Lax`，并 302 到去掉 `lang` 的同一地址，避免破坏签名的授权参数）→ Cookie → `Accept-Language`（按 q 值取第一个 `zh*` / `en*`）→ 部署变量 `DEFAULT_LANG`（默认 `en`，部署脚本 `--default-lang`）。
+- 每页有中英切换链接；`<html lang>` 随语言变化。文案集中在 `services/identity/src/messages.ts`，用 `defineMessages({ zh, en })`，由编译器保证两种语言 key 一致（与控制台相同）。引擎返回的错误信息原样显示（英文）。
+- 邮件语言见 §21.2。
 
 ### 21.5 用户管理：封禁、代登录、用户导出
 

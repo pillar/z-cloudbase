@@ -91,6 +91,15 @@ export interface DeploymentRecord {
   deployedAt?: string;
   /** D1 Time Travel bookmarks taken right before the last upgrade's migrations (see platform-deploy.ts). */
   restorePoints?: RestorePoint;
+  /** v3.1 (PRD §21.2–21.4); absent in records of earlier deployments, which then get the defaults. */
+  signupMode?: 'open' | 'invite' | 'closed';
+  requireEmailVerification?: boolean;
+  defaultLang?: 'zh' | 'en';
+  passkeys?: boolean;
+  magicLink?: boolean;
+  brand?: { logoUrl?: string; primaryColor?: string; tagline?: string };
+  /** Mail settings that are not secrets (RESEND_API_KEY / SMTP_PASSWORD stay Worker secrets). */
+  mail?: { transport?: 'resend' | 'smtp' | 'cloudflare'; from?: string; smtpHost?: string; smtpPort?: string; smtpUsername?: string };
 }
 
 export interface RestorePoint {
