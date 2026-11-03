@@ -245,6 +245,7 @@ try { … } catch (e) {
 | `unauthenticated` / `invalid_token` / `token_expired` | 未登录或登录失效 → 调 `signInWithRedirect()` |
 | `membership_required` | 受限产品且用户不是成员 → 提示无权限 |
 | `product_disabled` | 产品被平台停用 → 显示维护提示 |
+| `impersonation_restricted` | 代登录（平台支持人员）期间不允许的操作，如退出产品、删除文件 → 提示“支持会话中不可用” |
 | `forbidden` / `forbidden_product` | 无权访问该资源 |
 | `validation_failed` / `invalid_request` | 参数不合法，修代码 |
 | `not_found` | 资源不存在（或不属于当前用户，平台不区分） |
@@ -286,7 +287,7 @@ if (claims.act) {
 }
 ```
 
-平台自己已保证：代登录会话不能进入控制台，也不能修改该用户的密码、邮箱、登录方式、二次验证，不能导出或删除账号。用户被平台封禁后，已签发的 access token 调用平台 API 返回 403 `user_banned`，refresh 失败（`invalid_grant`），重新登录会被拒绝；你的后端用 `verifyToken` 本地验签时仍会在 token 剩余的最长 15 分钟内通过——需要立即生效时订阅下面的 `user.banned` Webhook。
+平台自己已保证：代登录会话不能进入控制台，也不能修改该用户的密码、邮箱、登录方式、二次验证，不能导出或删除账号；只能进入用户自己登录过的产品环境（不会替用户加入新产品，也不会触发 `user.joined`）；带 `act` 的 token 调用退出产品（`DELETE /v1/me/membership`）、删除存储对象时返回 403 `impersonation_restricted`，读取、上传和事件上报照常。用户被平台封禁后，已签发的 access token 调用平台 API 返回 403 `user_banned`，refresh 失败（`invalid_grant`），重新登录会被拒绝；你的后端用 `verifyToken` 本地验签时仍会在 token 剩余的最长 15 分钟内通过——需要立即生效时订阅下面的 `user.banned` Webhook。
 
 ### 5.4 Webhook（平台推送用户事件）
 

@@ -108,6 +108,19 @@ export function withUser(opts: { required: boolean }): MiddlewareHandler<AppEnv>
   };
 }
 
+/**
+ * Refuse a product access token issued during a support impersonation (`act` claim, PRD §21.5.2) on
+ * actions that only the user may take: leaving the product, deleting their data. Must run after `withUser`.
+ */
+export function denyImpersonation(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('user')?.actor) {
+      throw new ApiError('impersonation_restricted', 'Not available during a support session (impersonation)');
+    }
+    await next();
+  };
+}
+
 /** Verify a console token and load RBAC grants (PRD §19.9). Principals without grants are rejected. */
 export function withConsoleUser(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

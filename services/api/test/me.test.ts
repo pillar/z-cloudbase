@@ -92,6 +92,28 @@ describe('DELETE /v1/me/membership', () => {
   });
 });
 
+describe('support impersonation tokens (act claim, PRD §21.5.2)', () => {
+  it('can read but cannot leave the product on the user\'s behalf (403 impersonation_restricted, nothing changes)', async () => {
+    const u = await userFor(a);
+    const token = await (await minter()).mint({ productId: a.productId, env: a.env, userId: u.userId, act: { sub: 'usr_support_owner' } });
+    expect((await call('/v1/me', { key: a.publishableKey, token })).status).toBe(200);
+    expect((await call('/v1/me/requests', { key: a.publishableKey, token })).status).toBe(200);
+    const res = await call('/v1/me/membership', { key: a.publishableKey, token, method: 'DELETE' });
+    expect(res.status).toBe(403);
+    expect(await errCode(res)).toBe('impersonation_restricted');
+    expect(revokeUserTokens).not.toHaveBeenCalled();
+    expect(await env.DB.prepare('SELECT status FROM product_memberships WHERE user_id = ? AND product_id = ?').bind(u.userId, 'me_a').first()).toEqual({ status: 'active' });
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM deletion_requests WHERE user_id = ?').bind(u.userId).first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("B's key with an act token minted for A is still refused as a cross-product token", async () => {
+    const u = await userFor(a);
+    await seedMembership(u.userId, b.productId);
+    const token = await (await minter()).mint({ productId: a.productId, env: a.env, userId: u.userId, act: { sub: 'usr_support_owner' } });
+    expect((await call('/v1/me/membership', { key: b.publishableKey, token, method: 'DELETE' })).status).toBe(401);
+  });
+});
+
 describe('account-level requests are not offered by product APIs', () => {
   it('has no deletion or export initiation (identity domain only)', async () => {
     const u = await userFor(a);

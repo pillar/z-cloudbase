@@ -8,7 +8,7 @@
 // session-creation hook as the single place where every sign-in method creates a session,
 // `internalAdapter.createSession`, the session / signed cookies, and the OAuth provider's claim extension.
 import {
-  CONSOLE_CLIENT_ID, IMPERSONATION_MAX_S, REAUTH_WINDOW_S, type ImpersonationEndReason,
+  CONSOLE_CLIENT_ID, IMPERSONATION_MAX_S, REAUTH_WINDOW_S, clientId, parseClientId, type ImpersonationEndReason,
 } from '@z-cloudbase/contracts';
 import { extendOAuthProvider, getOAuthProviderApi } from '@better-auth/oauth-provider';
 import type { BetterAuthPlugin } from 'better-auth';
@@ -177,6 +177,18 @@ export function userAdmin(deps: { db: D1Database }) {
             const active = await activeImpersonation(db, session!.session.id);
             if (params.client_id === CONSOLE_CLIENT_ID || !active) {
               throw new APIError('BAD_REQUEST', { error: 'access_denied', error_description: 'not available during a support session' });
+            }
+            // Only product environments the user signed in to themselves: a support session never joins a
+            // product, records a first visit or emits `user.joined` on the user's behalf (PRD §21.5.2).
+            const client = parseClientId(typeof params.client_id === 'string' ? params.client_id : '');
+            const known = client && await db.prepare(
+              `SELECT 1 AS x FROM product_memberships m JOIN product_env_users e ON e.user_id = m.user_id AND e.product_env_id = ?
+               WHERE m.user_id = ? AND m.product_id = ? AND m.status = 'active'`,
+            ).bind(clientId(client.productId, client.env), session!.user.id, client.productId).first();
+            if (!known) {
+              throw new APIError('BAD_REQUEST', {
+                error: 'access_denied', error_description: 'not available during a support session: the user has not signed in to this product environment',
+              });
             }
           }),
         },

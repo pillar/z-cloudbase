@@ -207,6 +207,7 @@ describe('impersonation (PRD §21.5.2)', () => {
     const admin = await owner();
     const userJar = new CookieJar();
     const { userId } = await signUp(userJar);
+    await ssoToProduct(userJar, P, ENV); // the user has signed in to the product before
     const id = await requestImpersonation(admin.userId, userId);
 
     const confirm = await call(`/impersonation/${id}`, { jar: admin.jar });
@@ -286,7 +287,9 @@ describe('impersonation (PRD §21.5.2)', () => {
 
   it('expires after its lifetime: no further authorization or refresh, no act claim', async () => {
     const admin = await owner();
-    const { userId } = await signUp(new CookieJar());
+    const userJar = new CookieJar();
+    const { userId } = await signUp(userJar);
+    await ssoToProduct(userJar, P, ENV);
     const { id } = await start(admin, userId);
     const tokens = await ssoToProduct(admin.jar, P, ENV);
     await env.DB.prepare('UPDATE impersonations SET expires_at = ? WHERE id = ?').bind(Date.now() - 1, id).run();
@@ -336,6 +339,34 @@ describe('impersonation (PRD §21.5.2)', () => {
     expect((await call(`/impersonation/${noMfa}/start`, { jar: plain, form: { code: '123456' } })).status).toBe(401);
   });
 
+  it('only products the user already signed in to: no new membership, env record or user.joined during a support session', async () => {
+    const admin = await owner();
+    const userJar = new CookieJar();
+    const { userId } = await signUp(userJar);
+    await ssoToProduct(userJar, P, ENV); // prod yes, dev never
+    await seedEndpoint(P, 'dev', ['user.joined']);
+    await start(admin, userId);
+
+    const { challenge } = await pkcePair();
+    const dev = await call(authorizeUrl({ productId: P, env: 'dev', state: randomToken(), nonce: randomToken(), challenge }), { jar: admin.jar });
+    expect(dev.headers.get('location') ?? '').not.toContain('code=');
+    expect(dev.status === 400 || location(dev).searchParams.get('error') === 'access_denied').toBe(true);
+    expect(await env.DB.prepare('SELECT 1 AS x FROM product_env_users WHERE product_env_id = ? AND user_id = ?').bind(clientId(P, 'dev'), userId).first()).toBeNull();
+    expect(await env.DB.prepare(`SELECT 1 AS x FROM webhook_messages WHERE event_type = 'user.joined' AND payload LIKE ?`).bind(`%${userId}%`).first()).toBeNull();
+
+    // A product without a membership at all.
+    const Q = 'useradm_q';
+    await seedProduct(Q);
+    await setupClients([{ productId: Q, env: ENV }]);
+    await seedEnv(Q, ENV);
+    const q = await call(authorizeUrl({ productId: Q, env: ENV, state: randomToken(), nonce: randomToken(), challenge }), { jar: admin.jar });
+    expect(q.headers.get('location') ?? '').not.toContain('code=');
+    expect(await env.DB.prepare('SELECT 1 AS x FROM product_memberships WHERE user_id = ? AND product_id = ?').bind(userId, Q).first()).toBeNull();
+
+    // The product the user did sign in to works.
+    expect(decodeJwt((await ssoToProduct(admin.jar, P, ENV)).access_token)).toMatchObject({ sub: userId, act: { sub: admin.userId } });
+  });
+
   it('wrong confirmation codes: the request is cancelled after 5 (audited); the start form is rate limited per IP', async () => {
     const admin = await owner();
     const { userId } = await signUp(new CookieJar());
@@ -363,7 +394,9 @@ describe('impersonation (PRD §21.5.2)', () => {
 
   it('banning the target ends a running impersonation and its tokens', async () => {
     const admin = await owner();
-    const { userId } = await signUp(new CookieJar());
+    const userJar = new CookieJar();
+    const { userId } = await signUp(userJar);
+    await ssoToProduct(userJar, P, ENV);
     await start(admin, userId);
     const tokens = await ssoToProduct(admin.jar, P, ENV);
     const other = await owner();

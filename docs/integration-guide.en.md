@@ -247,6 +247,7 @@ try { … } catch (e) {
 | `unauthenticated` / `invalid_token` / `token_expired` | Not signed in or the sign-in expired → call `signInWithRedirect()` |
 | `membership_required` | Restricted product and the user is not a member → show "no permission" |
 | `product_disabled` | The product was disabled by the platform → show a maintenance notice |
+| `impersonation_restricted` | Not allowed during a support session (impersonation), e.g. leaving the product or deleting files → show "not available during a support session" |
 | `forbidden` / `forbidden_product` | No access to this resource |
 | `validation_failed` / `invalid_request` | Invalid parameters, fix the code |
 | `not_found` | The resource does not exist (or does not belong to the current user; the platform does not distinguish) |
@@ -288,7 +289,7 @@ if (claims.act) {
 }
 ```
 
-The platform itself guarantees that an impersonation session cannot enter the console, cannot change the user's password, email, sign-in methods or two-factor authentication, and cannot export or delete the account. After a user is banned by the platform, already issued access tokens get 403 `user_banned` when calling the platform API, refresh fails (`invalid_grant`), and signing in again is rejected; your backend, verifying locally with `verifyToken`, will still accept the token for up to its remaining 15 minutes — subscribe to the `user.banned` webhook below when you need it to take effect immediately.
+The platform itself guarantees that an impersonation session cannot enter the console, cannot change the user's password, email, sign-in methods or two-factor authentication, and cannot export or delete the account; it can only enter product environments the user signed in to themselves (it never joins a new product for them or triggers `user.joined`); with an `act` token, leaving the product (`DELETE /v1/me/membership`) and deleting storage objects return 403 `impersonation_restricted`, while reads, uploads and event tracking work as usual. After a user is banned by the platform, already issued access tokens get 403 `user_banned` when calling the platform API, refresh fails (`invalid_grant`), and signing in again is rejected; your backend, verifying locally with `verifyToken`, will still accept the token for up to its remaining 15 minutes — subscribe to the `user.banned` webhook below when you need it to take effect immediately.
 
 ### 5.4 Webhooks (the platform pushes user events)
 

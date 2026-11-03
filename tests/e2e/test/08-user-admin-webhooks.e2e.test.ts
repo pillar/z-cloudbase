@@ -107,7 +107,10 @@ describe('§21.5.2 support impersonation', () => {
     expect((await ob.request(`${issuer()}/two-factor/setup/confirm`, { form: { code: await totp(totpSecret), return: '' } })).status).toBe(302);
     const o2Token = await consoleToken({ email: o.email, password: PASSWORD, totp: { secret: totpSecret } });
 
-    const target = await signUp(new Browser(issuer()), uniqueEmail('target'));
+    const tb = new Browser(issuer());
+    const target = await signUp(tb, uniqueEmail('target'));
+    // Support sessions only enter product environments the user signed in to themselves.
+    await authorizeCode(tb, { clientId: p.dev.clientId, redirectUri: p.dev.redirectUri, resource: `urn:platform:${p.dev.clientId}` });
     const req = await admin<{ id: string; url: string }>(o2Token, 'POST', `/users/${target.userId}/impersonations`, { reason: 'e2e: support ticket 77' });
     expect(req.status).toBe(201);
     expect((await ob.request(req.body.url)).status).toBe(200);
@@ -118,6 +121,8 @@ describe('§21.5.2 support impersonation', () => {
     const r = await authorizeCode(ob, { clientId: p.dev.clientId, redirectUri: p.dev.redirectUri, resource: `urn:platform:${p.dev.clientId}` });
     expect(decodeJwt(r.tokens!.access_token)).toMatchObject({ sub: target.userId, act: { sub: o.userId } });
     expect((await api('/v1/me', { key: p.dev.publishableKey, token: r.tokens!.access_token })).status).toBe(200);
+    const leave = await api('/v1/me/membership', { key: p.dev.publishableKey, token: r.tokens!.access_token, method: 'DELETE' });
+    expect([leave.status, (await errorOf(leave)).code]).toEqual([403, 'impersonation_restricted']);
     // The console cannot be reached from the support session.
     const consoleTry = await ob.request(`${issuer()}/api/auth/change-password`, { json: { currentPassword: PASSWORD, newPassword: 'x'.repeat(20) } });
     expect(consoleTry.status).toBe(403);
