@@ -25,6 +25,8 @@ export const IMPERSONATION_REASON_MAX = 500;
 export const IMPERSONATION_MAX_S = 60 * 60;
 /** A requested impersonation must be confirmed on the identity domain within this window. */
 export const IMPERSONATION_REQUEST_TTL_S = 10 * 60;
+/** Wrong TOTP codes on the confirmation page before the request is cancelled (PRD §21.5.2). */
+export const IMPERSONATION_MAX_CODE_ATTEMPTS = 5;
 
 export const StartImpersonationRequest = z.object({
   reason: z.string().trim().min(IMPERSONATION_REASON_MIN).max(IMPERSONATION_REASON_MAX),

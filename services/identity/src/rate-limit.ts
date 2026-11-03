@@ -27,6 +27,9 @@ export const RATE_LIMITED_PATHS = [
   '/login/social',
   // Passkey assertions (PRD §21.3); the options request (GET) is limited in index.ts.
   '/api/auth/passkey/verify-authentication',
+  // The TOTP step-up of a support session confirmation (PRD §21.5.2) calls the engine directly, past
+  // the `/api/auth/two-factor/*` limit above, so its form is limited here.
+  '/impersonation/:id/start',
   '/register',
   '/forgot-password',
   '/reset-password',

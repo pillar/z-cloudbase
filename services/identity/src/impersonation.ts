@@ -2,11 +2,12 @@
 // then the engine endpoint in user-admin.ts), the stop button, and a guard that renders a banner on every
 // identity page and refuses the account pages' state changes while the browser holds an impersonation
 // session. Engine endpoints are restricted by the plugin itself (IMPERSONATION_ALLOWED_PATHS).
-import { ApiError, IMPERSONATION_MAX_S } from '@z-cloudbase/contracts';
+import { ApiError, IMPERSONATION_MAX_CODE_ATTEMPTS, IMPERSONATION_MAX_S } from '@z-cloudbase/contracts';
 import type { RequestIdVars } from '@z-cloudbase/security';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
+import { writeAudit } from './audit.ts';
 import { AUTH_BASE_PATH } from './auth.ts';
 import { getAuth } from './instance.ts';
 import { platformName } from './platform.ts';
@@ -77,6 +78,29 @@ const confirmPage = (c: C, p: Pending & { email: string; isAnonymous: number | n
         : html`<p>Support sessions require two-factor authentication. <a href="/two-factor/setup">Set it up</a> first.</p>`}`,
   );
 
+/**
+ * Count a wrong code on a pending request; the attempt that reaches IMPERSONATION_MAX_CODE_ATTEMPTS cancels
+ * it (audited `user.impersonation.cancel`). Returns whether this attempt cancelled the request. The
+ * engine does not lock a signed-in session's step-up, so without this the page would be a TOTP oracle.
+ */
+async function countFailedCode(c: C, p: Pending): Promise<boolean> {
+  const now = Date.now();
+  const cancelled = await c.env.DB.prepare(
+    `UPDATE impersonations SET failed_attempts = failed_attempts + 1,
+       status = CASE WHEN failed_attempts + 1 >= ? THEN 'cancelled' ELSE status END,
+       ended_at = CASE WHEN failed_attempts + 1 >= ? THEN ? ELSE ended_at END,
+       end_reason = CASE WHEN failed_attempts + 1 >= ? THEN 'too_many_attempts' ELSE end_reason END
+     WHERE id = ? AND status = 'pending' RETURNING status, failed_attempts`,
+  ).bind(IMPERSONATION_MAX_CODE_ATTEMPTS, IMPERSONATION_MAX_CODE_ATTEMPTS, now, IMPERSONATION_MAX_CODE_ATTEMPTS, p.id)
+    .first<{ status: string; failed_attempts: number }>();
+  if (cancelled?.status !== 'cancelled') return false;
+  await writeAudit(c.env.DB, {
+    actorType: 'user', actorId: p.actor_id, action: 'user.impersonation.cancel', targetType: 'user', targetId: p.target_id,
+    metadata: { impersonation_id: p.id, reason: 'too_many_attempts', failed_attempts: cancelled.failed_attempts },
+  });
+  return true;
+}
+
 export const impersonation = new Hono<ImpEnv>();
 
 impersonation.get('/impersonation/:id', async (c) => {
@@ -99,7 +123,12 @@ impersonation.post('/impersonation/:id/start', async (c) => {
   const code = typeof form.code === 'string' ? form.code.trim() : '';
   // Step-up: a current TOTP code marks this identity session as freshly verified (mfa-policy.ts).
   const verified = /^\d{6}$/.test(code) ? await engine(c, '/two-factor/verify-totp', { code }) : { ok: false, data: null };
-  if (!verified.ok) return c.html(confirmPage(c, p, mfa, verified.data?.message ?? 'Invalid code'), 401);
+  if (!verified.ok) {
+    if (await countFailedCode(c, p)) {
+      return c.html(page(c.env, 'Support session', html`<p role="alert">Too many wrong codes: this request was cancelled. Start a new one in the console.</p>`), 401);
+    }
+    return c.html(confirmPage(c, p, mfa, verified.data?.message ?? 'Invalid code'), 401);
+  }
   // The step-up may have rotated cookies; the engine reads the request's own cookie, which is unchanged.
   try {
     await serverCall(c, 'startImpersonation', { id: p.id });

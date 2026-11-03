@@ -1,7 +1,7 @@
 // Platform user management on the identity worker (PRD §21.5): bans at the session-creation layer and at
 // token issuance / refresh, support impersonation (TOTP-confirmed, act claim, restrictions, stop, expiry),
 // and the webhook events emitted here (user.joined, user.upgraded, user.banned / user.unbanned).
-import { CONSOLE_AUDIENCE, IMPERSONATION_REQUEST_TTL_S, clientId, newId, type Environment } from '@z-cloudbase/contracts';
+import { AUTH_RATE_PER_IP_PER_MIN, CONSOLE_AUDIENCE, IMPERSONATION_REQUEST_TTL_S, clientId, newId, type Environment } from '@z-cloudbase/contracts';
 import { verifyWebhookSignature } from '@z-cloudbase/security';
 import { totp } from '@z-cloudbase/testing';
 import { createExecutionContext } from 'cloudflare:test';
@@ -334,6 +334,31 @@ describe('impersonation (PRD §21.5.2)', () => {
     const noMfa = await requestImpersonation(p.userId, userId);
     expect(await (await call(`/impersonation/${noMfa}`, { jar: plain })).text()).toContain('/two-factor/setup');
     expect((await call(`/impersonation/${noMfa}/start`, { jar: plain, form: { code: '123456' } })).status).toBe(401);
+  });
+
+  it('wrong confirmation codes: the request is cancelled after 5 (audited); the start form is rate limited per IP', async () => {
+    const admin = await owner();
+    const { userId } = await signUp(new CookieJar());
+    const id = await requestImpersonation(admin.userId, userId);
+    for (let i = 0; i < 5; i++) {
+      expect((await call(`/impersonation/${id}/start`, { jar: admin.jar, form: { code: '000000' } })).status, `attempt ${i + 1}`).toBe(401);
+    }
+    // Cancelled: even the right code no longer starts it.
+    expect((await call(`/impersonation/${id}/start`, { jar: admin.jar, form: { code: await totp(admin.secret) } })).status).toBe(404);
+    expect(await env.DB.prepare('SELECT status, end_reason FROM impersonations WHERE id = ?').bind(id).first())
+      .toEqual({ status: 'cancelled', end_reason: 'too_many_attempts' });
+    expect((await auditRows('user.impersonation.cancel', userId))[0]).toMatchObject({
+      actor_id: admin.userId, metadata: { impersonation_id: id, reason: 'too_many_attempts' },
+    });
+
+    // Per-IP limit of the auth endpoints (PRD §19.6) on the confirmation form.
+    const other = await requestImpersonation(admin.userId, userId);
+    const headers = { 'cf-connecting-ip': `203.0.113.${Math.floor(Math.random() * 250) + 1}-${crypto.randomUUID().slice(0, 4)}` };
+    const statuses: number[] = [];
+    for (let i = 0; i < AUTH_RATE_PER_IP_PER_MIN + 1; i++) {
+      statuses.push((await call(`/impersonation/${other}/start`, { jar: admin.jar, headers, form: { code: 'x' } })).status);
+    }
+    expect(statuses.at(-1)).toBe(429);
   });
 
   it('banning the target ends a running impersonation and its tokens', async () => {
