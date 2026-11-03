@@ -8,3 +8,4 @@ export * from './storage.ts';
 export * from './admin.ts';
 export * from './identity-rpc.ts';
 export * from './me.ts';
+export * from './invitations.ts';

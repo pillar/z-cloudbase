@@ -30,6 +30,8 @@ for (const path of BROWSER_OAUTH_PATHS) app.use(path, browserOAuthCors());
 for (const path of RATE_LIMITED_PATHS) app.use(path, authRateLimit());
 // The guest entry creates an anonymous account on a GET navigation (ui.ts `/guest`).
 app.use('/guest', authRateLimit({ anyMethod: true }));
+// Each passkey sign-in start stores a WebAuthn challenge (GET): limited per IP like a sign-in (PRD §21.3).
+app.use(`${AUTH_BASE_PATH}/passkey/generate-authenticate-options`, authRateLimit({ anyMethod: true }));
 // Turnstile once an account or IP failed too often (PRD §19.11); JSON callers of the engine.
 app.use(`${AUTH_BASE_PATH}/*`, turnstileGuard());
 

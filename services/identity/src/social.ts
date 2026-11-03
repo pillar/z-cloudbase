@@ -19,13 +19,15 @@ export interface SocialSecrets {
  * app bundle id as id_token audience, which breaks the web (Services ID) flow. Native id_token
  * exchange is P1 (PRD §19.4).
  */
-export function socialProviders(s: SocialSecrets): BetterAuthOptions['socialProviders'] {
+export function socialProviders(s: SocialSecrets, o: { disableSignUp?: boolean } = {}): BetterAuthOptions['socialProviders'] {
+  // `disableSignUp`: registration mode is not `open` (PRD §21.2); existing linked users still sign in.
+  const signUp = o.disableSignUp ? { disableSignUp: true } : {};
   return {
     ...(s.GOOGLE_CLIENT_ID && s.GOOGLE_CLIENT_SECRET
-      ? { google: { clientId: s.GOOGLE_CLIENT_ID, clientSecret: s.GOOGLE_CLIENT_SECRET } }
+      ? { google: { clientId: s.GOOGLE_CLIENT_ID, clientSecret: s.GOOGLE_CLIENT_SECRET, ...signUp } }
       : {}),
     ...(s.APPLE_CLIENT_ID && s.APPLE_CLIENT_SECRET
-      ? { apple: { clientId: s.APPLE_CLIENT_ID, clientSecret: s.APPLE_CLIENT_SECRET } }
+      ? { apple: { clientId: s.APPLE_CLIENT_ID, clientSecret: s.APPLE_CLIENT_SECRET, ...signUp } }
       : {}),
   };
 }

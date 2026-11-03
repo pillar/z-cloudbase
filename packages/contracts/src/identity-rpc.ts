@@ -1,4 +1,5 @@
 import type { Environment } from './ids.ts';
+import type { CreatedInvitation, Invitation, InvitationStatus, RpcResult } from './invitations.ts';
 
 /**
  * RPC surface of the identity worker, exposed as the named entrypoint `IdentityRpc` and
@@ -35,4 +36,19 @@ export interface IdentityRpcApi {
     created_at: string;
     providers: string[];
   }>;
+  /**
+   * Platform invitations (PRD §21.2). `actorId` / `requestId` are the calling admin and request, for the
+   * audit entry written by identity. Errors (as `RpcResult`): `conflict` (account or pending invitation
+   * exists; invitation no longer pending), `invalid_request` (link delivery while email verification is
+   * required), `unavailable` (mail could not be sent), `not_found`.
+   */
+  createInvitation(input: {
+    email: string;
+    expiresInDays: number;
+    lang?: 'zh' | 'en';
+    actorId: string;
+    requestId?: string;
+  }): Promise<RpcResult<CreatedInvitation>>;
+  listInvitations(input: { status?: InvitationStatus; limit: number; offset: number }): Promise<{ invitations: Invitation[] }>;
+  revokeInvitation(input: { id: string; actorId: string; requestId?: string }): Promise<RpcResult<Invitation>>;
 }

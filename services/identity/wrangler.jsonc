@@ -17,7 +17,17 @@
     // Turnstile widget site key (PRD §19.11). This is Cloudflare's public TESTING key ("always passes",
     // tokens are the dummy XXXX.DUMMY.TOKEN.XXXX); a deployment sets its real site key here and the
     // TURNSTILE_SECRET_KEY secret (siteverify). With DEPLOY_ENV=local no secret is used (src/turnstile.ts).
-    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    // Registration (PRD §21.2): SIGNUP_MODE open | invite | closed. REQUIRE_EMAIL_VERIFICATION defaults to
+    // "true" in deployments; local development turns it off so sign-up can be followed by sign-in without
+    // opening the outbox (tests of the verified flow override it with useEnv).
+    "SIGNUP_MODE": "open",
+    "REQUIRE_EMAIL_VERIFICATION": "false",
+    // Language of the identity pages and mail without ?lang / cookie / Accept-Language (PRD §21.4).
+    "DEFAULT_LANG": "en"
+    // Further optional vars of a deployment (scripts/platform-deploy.ts): EMAIL_TRANSPORT (resend | smtp |
+    // cloudflare), EMAIL_FROM, SMTP_HOST, SMTP_PORT, SMTP_USERNAME, PASSKEYS, MAGIC_LINK, BRAND_LOGO_URL,
+    // BRAND_PRIMARY_COLOR, SIGNIN_TAGLINE. EMAIL_TRANSPORT=cloudflare adds a `send_email` binding SEND_EMAIL.
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "z-cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" }
@@ -30,7 +40,7 @@
   // SETUP_TOKEN: operator setup (src/setup.ts); without it the /setup routes do not exist, so local dev
   // only warns when it is missing. Listing it here is what makes `wrangler dev` load it (a `secrets`
   // block limits local secrets to the listed names). Deployments get both from scripts/platform-deploy.ts.
-  // Further optional secrets of a deployment: RESEND_API_KEY, TURNSTILE_SECRET_KEY, Google / Apple.
+  // Further optional secrets of a deployment: RESEND_API_KEY or SMTP_PASSWORD, TURNSTILE_SECRET_KEY, Google / Apple.
   "secrets": { "required": ["AUTH_SECRET", "SETUP_TOKEN"] },
   "dev": { "port": 8787 }
 }

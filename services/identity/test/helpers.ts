@@ -31,7 +31,7 @@ let overridden: Env | null = null;
  * REQUIRE_ADMIN_2FA), or back to the configured env with `null`. One env object per call, so the
  * engine instance (cached per env object) is built with the overrides.
  */
-export function useEnv(vars: Partial<Record<keyof Env, string>> | null) {
+export function useEnv(vars: (Partial<Record<keyof Env, string>> & Record<string, string>) | null) {
   overridden = vars ? ({ ...env, ...vars } as Env) : null;
 }
 
