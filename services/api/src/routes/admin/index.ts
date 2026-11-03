@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../../context.ts';
 import { withConsoleUser } from '../../middleware/auth.ts';
+import { analyticsRoutes } from './analytics.ts';
 import { configRoutes } from './config.ts';
 import { insightRoutes } from './insights.ts';
 import { keyRoutes } from './keys.ts';
@@ -23,3 +24,4 @@ adminRoutes.route('/', configRoutes);
 adminRoutes.route('/', teamRoutes);
 adminRoutes.route('/', userRoutes);
 adminRoutes.route('/', insightRoutes);
+adminRoutes.route('/', analyticsRoutes);
