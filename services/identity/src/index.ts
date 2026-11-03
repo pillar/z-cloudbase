@@ -9,6 +9,7 @@ import { RATE_LIMITED_PATHS, authRateLimit } from './rate-limit.ts';
 import { turnstileGuard } from './turnstile.ts';
 import { setup } from './setup.ts';
 import { ui } from './ui.ts';
+import { htmlErrorPage, wantsHtmlError } from './error-page.ts';
 
 // Every named export of the entry module is a workerd entrypoint: export entrypoint classes only.
 /** Named entrypoint bound by the api worker as `IDENTITY` (packages/contracts identity-rpc.ts). */
@@ -19,7 +20,8 @@ export type AppEnv = { Bindings: Env; Variables: RequestIdVars };
 const app = new Hono<AppEnv>();
 app.use(contextStorage());
 app.use(requestId());
-app.onError(errorHandler);
+// Browser navigations to the identity pages get a readable page in their language; API callers the JSON body.
+app.onError((err, c) => (wantsHtmlError(c) ? htmlErrorPage(err, c) : errorHandler(err, c)));
 
 app.get('/health', (c) => c.json({ ok: true, service: 'identity' }));
 

@@ -118,7 +118,8 @@ export function passkeyPolicy(deps: { db: D1Database; mail?: { email: EmailAdapt
  * `[data-passkey-signin]` buttons sign in (optionally continuing a signed authorization request from
  * `data-oauth-query`; afterwards the browser goes to the engine's continuation URL, or to
  * `/passkey/continue?return=…`, which only accepts this issuer's own targets). `[data-passkey-register]`
- * adds a passkey to the signed-in account and goes to `data-next` (a same-origin path).
+ * adds a passkey to the signed-in account and goes to `data-next` (a same-origin path). Errors go to the
+ * error element; its `data-messages` (JSON, error code → text) localizes known engine codes.
  * User verification is requested as `required`; the server rejects assertions without it anyway.
  */
 export const PASSKEY_SCRIPT = String.raw`(() => {
@@ -133,12 +134,18 @@ export const PASSKEY_SCRIPT = String.raw`(() => {
   const api = async (path, init) => {
     const res = await fetch('/api/auth' + path, { credentials: 'same-origin', headers: { 'content-type': 'application/json', accept: 'application/json' }, ...init });
     const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((body && body.message) || ('HTTP ' + res.status));
+    if (!res.ok) throw Object.assign(new Error((body && body.message) || ('HTTP ' + res.status)), { code: body && body.code });
     return body;
   };
   const fail = (btn, e) => {
     const out = document.querySelector(btn.dataset.error || '#passkey-error');
-    if (out) { out.textContent = (btn.dataset.failed || 'Passkey failed') + ': ' + (e && e.message ? e.message : e); out.hidden = false; }
+    if (!out) return;
+    let texts = {};
+    try { texts = JSON.parse(out.dataset.messages || '{}'); } catch {}
+    // A known engine code (or a cancelled / timed-out WebAuthn prompt) in the page's language.
+    const known = e && (texts[e.code] || texts[e.name]);
+    out.textContent = (btn.dataset.failed || 'Passkey failed') + ': ' + (known || (e && e.message ? e.message : e));
+    out.hidden = false;
   };
   const support = typeof window.PublicKeyCredential === 'function';
   for (const btn of document.querySelectorAll('[data-passkey-signin],[data-passkey-register]')) {
