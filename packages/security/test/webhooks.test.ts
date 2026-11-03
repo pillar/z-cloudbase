@@ -61,13 +61,15 @@ describe('webhook URL rules (SSRF guard)', () => {
       '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0',
       '224.0.0.1', '255.255.255.255', '2130706433', '0x7f.1', '127.1', '[::1]', '[::]', '[fc00::1]', '[fd12:3456::1]',
       '[fe80::1]', '[::ffff:127.0.0.1]', '[::ffff:10.0.0.1]', '[ff02::1]', '[64:ff9b::a00:1]',
+      // Tunnels that embed an IPv4 address (6to4, its relay anycast, Teredo): refused outright.
+      '[2002:7f00:1::1]', '[2002:808:808::1]', '192.88.99.1', '[2001:0:4136:e378:8000:63bf:3fff:fdd2]', '[2001::1]',
     ]) {
       expect(checkWebhookUrl(`https://${host}/hook`, 'prod'), host).toBe('private_address');
     }
     // dev only relaxes the loopback names, not private networks.
     expect(checkWebhookUrl('http://10.0.0.1/hook', 'dev')).toBe('https_required');
     expect(checkWebhookUrl('https://10.0.0.1/hook', 'dev')).toBe('private_address');
-    for (const host of ['8.8.8.8', '172.32.0.1', '[2606:4700::1111]', '[::ffff:8.8.8.8]']) {
+    for (const host of ['8.8.8.8', '172.32.0.1', '[2606:4700::1111]', '[::ffff:8.8.8.8]', '[2001:4860:4860::8888]', '192.88.100.1']) {
       expect(checkWebhookUrl(`https://${host}/hook`, 'prod'), host).toBeNull();
     }
   });

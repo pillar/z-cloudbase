@@ -65,8 +65,15 @@ async function post(fetchFn: Fetcher, url: string, headers: Record<string, strin
       redirect: 'manual',
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
-    const snippet = await readSnippet(res);
     const ok = res.status >= 200 && res.status < 300;
+    // Only a successful response's body is kept for the delivery log; a failure keeps its status line. An
+    // endpoint that ends up somewhere it should not (PRD §21.6 residual risk) cannot echo pages into the console.
+    let snippet: string | null;
+    if (ok) snippet = await readSnippet(res);
+    else {
+      snippet = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`.slice(0, WEBHOOK_RESPONSE_SNIPPET_MAX);
+      await res.body?.cancel().catch(() => undefined);
+    }
     const error = ok ? null : res.status >= 300 && res.status < 400 ? 'redirect_not_followed' : `http_${res.status}`;
     return { statusCode: res.status, error, snippet, latencyMs: Date.now() - started };
   } catch (e) {

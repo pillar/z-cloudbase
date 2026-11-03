@@ -79,7 +79,8 @@ describe('webhook endpoints', () => {
     reply = () => new Response('x'.repeat(5000), { status: 500 });
     const failed = (await (await api(w.tok.adminA, 'POST', `${base(w.a, 'staging')}/${ep.id}/test`)).json()) as Json;
     expect(failed.attempt).toMatchObject({ status_code: 500, error: 'http_500', delivery_status: 'failed' });
-    expect(failed.attempt.response_snippet).toHaveLength(256);
+    // Only a 2xx response's body is kept; a failure keeps its status line, never the body.
+    expect(failed.attempt.response_snippet).toMatch(/^HTTP 500( Internal Server Error)?$/);
 
     const log = (await (await api(w.tok.devA, 'GET', `${base(w.a, 'staging')}/${ep.id}/deliveries`)).json()) as Json;
     expect(log.attempts.map((a: Json) => a.status_code)).toEqual([500, 200]);

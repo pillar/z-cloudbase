@@ -930,7 +930,8 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 | 接口 | `GET/POST /v1/admin/products/:id/environments/:env/webhooks`；`PATCH/DELETE …/webhooks/:webhook_id`；`POST …/webhooks/:webhook_id/rotate-secret`；`POST …/webhooks/:webhook_id/test`；`GET …/webhooks/:webhook_id/deliveries` |
 | 权限 | 读（列表、投递记录）：`webhooks:read` = owner、operator、本产品的 product_admin 与 product_developer。写（创建、修改、删除、轮换、测试）：`webhooks:manage` = owner、本产品的 product_admin；product_developer 只能写 dev / staging（与密钥管理一致）。其他产品的端点一律 404 |
 | 字段 | `url`（≤ 2048）、`description`（≤ 200，可选）、`event_types`（至少一个可订阅类型）、`enabled`（默认 true）。每个产品环境最多 **10** 个端点，超出 422 `quota_exceeded` |
-| URL 规则 | 必须 `https://`；不允许 URL 中带用户名密码；主机不能是 `localhost` / `*.localhost`，不能是私有、回环、链路本地、CGNAT、未指定、组播等 IP 字面量（IPv4、IPv6 及 IPv4 映射地址）。`dev` 环境额外允许 `http://localhost`、`http://127.0.0.1`、`http://[::1]`（任意端口）。不合规返回 400 `validation_failed`。投递时再次检查；Workers 的出站请求本身也到不了内网 |
+| URL 规则 | 必须 `https://`；不允许 URL 中带用户名密码；主机不能是 `localhost` / `*.localhost`，不能是私有、回环、链路本地、CGNAT、未指定、组播等 IP 字面量（IPv4、IPv6 及 IPv4 映射地址；嵌入 IPv4 的隧道地址 6to4 `2002::/16`、其中继 `192.88.99.0/24`、Teredo `2001::/32`、NAT64 `64:ff9b::/96` 一律拒绝）。`dev` 环境额外允许 `http://localhost`、`http://127.0.0.1`、`http://[::1]`（任意端口）。不合规返回 400 `validation_failed`。投递时再次检查；Workers 的出站请求本身也到不了内网 |
+| 残余风险 | 只检查 URL 字面量：Workers 无法在请求前解析 DNS，解析到私有地址的域名（含 DNS rebinding）在这里拦不住。部署在 Cloudflare 上时，Workers 的出站子请求不会被路由到运营者的内网；自部署 workerd 没有这层出站限制，需要运营者在网络层（出站防火墙 / 代理）自行阻止 identity、api、consumer 访问内网。 |
 | 签名密钥 | `whsec_` + 32 字节随机数的 base64，只在创建和轮换时返回一次。签名需要原文，所以以原文存在平台 D1（与平台其他元数据同一信任边界）。轮换后旧密钥继续并行签名 24 小时（签名头同时带两个签名） |
 | 审计 | `webhook.create` / `webhook.update` / `webhook.delete` / `webhook.rotate_secret` / `webhook.test`；审计中不写密钥 |
 
@@ -958,7 +959,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 | 请求 | `POST` JSON；头 `webhook-id`、`webhook-timestamp`（Unix 秒）、`webhook-signature`（`v1,<base64(HMAC-SHA256(key, "{id}.{timestamp}.{body}"))>`，多个签名以空格分隔），即 [Standard Webhooks](https://www.standardwebhooks.com/) 规范；`user-agent: z-cloudbase-webhooks/1`。超时 10 秒，不跟随重定向；只有 2xx 算成功 |
 | 重试 | 失败后按 15 分钟 × 2^(n−1) 退避（上限 12 小时）：15 分钟、30 分钟、1 小时、2 小时、4 小时、8 小时、12 小时；共 **8** 次尝试（约 28 小时）后标记 `failed`，不再重试。重试由 consumer 已有的 15 分钟 cron 执行（不新增 cron 触发器），每次最多处理 100 条 |
 | 停用 / 删除 | 停用端点时取消其未完成投递（`cancelled`）；删除端点同时删除其投递与记录 |
-| 投递记录 | 每次尝试记一条：时间、状态码、耗时、错误摘要、响应体前 256 字符；控制台显示最近 100 条。每个端点只保留最近 100 条尝试；消息与投递保留 30 天（daily cron 清理） |
+| 投递记录 | 每次尝试记一条：时间、状态码、耗时、错误摘要、响应摘要（2xx 为响应体前 256 字符；非 2xx 只记状态行如 `HTTP 500 Internal Server Error`，不读取响应体，避免把非预期目标的页面内容回显到控制台）；控制台显示最近 100 条。每个端点只保留最近 100 条尝试；消息与投递保留 30 天（daily cron 清理） |
 | 校验 | `@z-cloudbase/server` 提供 `verifyWebhook({ secret, headers, body })`：常量时间比较，时间戳偏差超过 5 分钟拒绝 |
 
 **数据模型**：`webhook_endpoints`（id `whe_…`、product_env_id、url、description、event_types JSON、enabled、secret、previous_secret、previous_secret_expires_at、created_by、时间戳）、`webhook_messages`（id `msg_…`、product_env_id、event_type、payload、created_at）、`webhook_deliveries`（message_id + endpoint_id 主键、status `pending`/`delivered`/`failed`/`cancelled`、attempts、next_attempt_at、last_attempt_at）、`webhook_attempts`（投递记录）。`product_env_users`（product_env_id + user_id 主键、first_seen_at）与代登录表 `impersonations` 见 21.5。

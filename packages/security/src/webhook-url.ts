@@ -1,6 +1,8 @@
 // Webhook target URL rules (PRD §21.6): an SSRF guard for product-configured endpoints. Checked when
 // an endpoint is created / changed and again before every delivery. Only the URL is inspected: Workers
-// cannot resolve DNS before fetching, and their outbound requests cannot reach private networks anyway.
+// cannot resolve DNS before fetching, so a DNS name that resolves to a private address is not caught here
+// (Cloudflare's network does not route Workers' subrequests into private networks; a self-hosted workerd
+// has no such restriction — see the residual risk in PRD §21.6).
 import type { Environment } from '@z-cloudbase/contracts';
 
 export type WebhookUrlProblem = 'invalid_url' | 'https_required' | 'credentials_not_allowed' | 'private_address' | 'localhost_not_allowed';
@@ -14,7 +16,7 @@ function ipv4(host: string): number[] | null {
   return parts.every((n) => n <= 255) ? parts : null;
 }
 
-function privateIpv4([a, b]: number[]): boolean {
+function privateIpv4([a, b, c]: number[]): boolean {
   return (
     a === 0 || // "this network"
     a === 10 ||
@@ -26,6 +28,7 @@ function privateIpv4([a, b]: number[]): boolean {
     (a === 192 && b === 0) || // 192.0.0.0/24 IETF, 192.0.2.0/24 TEST-NET-1
     (a === 198 && (b === 18 || b === 19)) || // benchmarking
     (a === 198 && b === 51) || (a === 203 && b === 0) || // TEST-NET-2/3
+    (a === 192 && b === 88 && c === 99) || // 6to4 relay anycast (deprecated, tunnels to embedded IPv4)
     a! >= 224 // multicast, reserved, broadcast
   );
 }
@@ -59,7 +62,9 @@ function privateIpv6(x: number[]): boolean {
     (first & 0xffc0) === 0xfec0 || // fec0::/10 site-local (deprecated)
     (first & 0xff00) === 0xff00 || // multicast
     (first === 0x2001 && x[1] === 0x0db8) || // documentation
-    (first === 0x0064 && x[1] === 0xff9b) // NAT64: embeds IPv4
+    (first === 0x0064 && x[1] === 0xff9b) || // NAT64: embeds IPv4
+    first === 0x2002 || // 6to4 (2002::/16): embeds an IPv4 address
+    (first === 0x2001 && x[1] === 0x0000) // Teredo (2001::/32): embeds an IPv4 address
   );
 }
 
