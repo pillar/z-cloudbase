@@ -110,8 +110,10 @@ describe('ban (PRD §21.5.1)', () => {
     expect(signin.status).toBe(403);
     expect(await signin.json()).toMatchObject({ code: 'BANNED_USER', message: expect.stringContaining('banned') });
     const form = await call('/login', { jar: new CookieJar(), form: { email, password: PASSWORD, oauth_query: '' } });
-    expect(form.status).toBe(401);
+    expect(form.status).toBe(403);
     expect(await form.text()).toContain('This account has been banned');
+    // Social sign-in lands on /login?error=… from the engine's callback.
+    expect(await (await call('/login?error=BANNED_USER', { jar: new CookieJar(), headers: { 'accept-language': 'en' } })).text()).toContain('This account has been banned and cannot sign in.');
 
     const audit = await auditRows('user.ban', userId);
     expect(audit).toHaveLength(1);

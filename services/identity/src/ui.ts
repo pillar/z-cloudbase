@@ -184,7 +184,7 @@ ui.get('/login', async (c) => {
   }
   // The magic-link error target is `/login?magic=1`; the engine adds its own `error` code to it.
   const magic = c.req.query('magic') !== undefined;
-  const message = error !== undefined ? (magic ? t.magicLinkInvalid : t.signInFailed) : verified !== undefined ? t.emailVerified : undefined;
+  const message = error !== undefined ? (magic ? t.magicLinkInvalid : /banned/i.test(error) ? t.accountBanned : t.signInFailed) : verified !== undefined ? t.emailVerified : undefined;
   return c.html(loginForm(c, query, message, await challenge(c)));
 });
 

@@ -3,7 +3,7 @@
 // Administrator password recovery that needs no mail provider: puts a fresh random SETUP_TOKEN on the
 // deployment's identity worker (your Cloudflare login is the authority), calls /setup/reset-admin and
 // prints the new random password once. The administrator is signed out everywhere; --disable-2fa also
-// removes their TOTP (lost authenticator). Reads the identity URL from .deploy/<prefix>.json, written
+// removes their TOTP and passkeys (lost authenticator). Reads the identity URL from .deploy/<prefix>.json, written
 // by `pnpm platform:deploy`; pass --issuer for a deployment made from another checkout.
 import { parseArgs } from 'node:util';
 import { generatePassword, randomSecret, resetAdmin } from './lib/setup-client.ts';

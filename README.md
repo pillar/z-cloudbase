@@ -113,7 +113,7 @@ Deletes the workers (and their custom domains), queue consumers and queues, both
   pnpm platform:reset-admin --email you@example.com [--disable-2fa]
   ```
 
-  It puts a fresh one-time setup token on the identity worker (your Cloudflare login is the authority), sets a new random password, prints it once and signs that administrator out everywhere.
+  It puts a fresh one-time setup token on the identity worker (your Cloudflare login is the authority), sets a new random password, prints it once and signs that administrator out everywhere. `--disable-2fa` also removes their TOTP and passkeys.
 
 There is no web installer and no public admin sign-up: the first administrator can only be created by whoever can deploy to the Cloudflare account.
 

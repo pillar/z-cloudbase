@@ -118,6 +118,8 @@ setup.post('/reset-admin', async (c) => {
   if (input.disable_2fa) {
     await ctx.adapter.deleteMany({ model: 'twoFactor', where: [{ field: 'userId', value: user.id }] });
     await ctx.internalAdapter.updateUser(user.id, { twoFactorEnabled: false });
+    // Passkeys count as a second factor (PRD §21.3): a lost authenticator may be a lost passkey device.
+    await c.env.DB.prepare('DELETE FROM passkey WHERE userId = ?').bind(user.id).run();
   }
   await revokeAll(ctx, user.id);
   await writeAudit(c.env.DB, {

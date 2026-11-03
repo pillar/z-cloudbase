@@ -742,7 +742,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 
 - 鉴权：Worker secret `SETUP_TOKEN` 作为 Bearer token，常量时间比较；没有该 secret 时路由不存在（404）。运营脚本每次使用前都写入新的随机 token，token 不落盘，因此持有它等于持有部署所在的 Cloudflare 账号。
 - `POST /setup/install` `{ admin_email, admin_password, console_redirect_uris }`：注册或更新 `platform_console` 的回调地址；**仅当平台还没有 owner 时**，用认证引擎的原语（用户、credential 账号、引擎的密码哈希）创建邮箱已验证的管理员并授予 `owner`，写审计 `ops.owner_granted`。邮箱已属于现有账号时返回 409，绝不提升已有账号。已有 owner 时返回 `admin: "exists"`，不创建、不修改任何账号。
-- `POST /setup/reset-admin` `{ email, password, disable_2fa? }`：只对平台团队成员生效；设置新密码、撤销全部会话和产品 token，可选移除 TOTP 与备用码，写审计 `auth.admin_password_reset`。普通用户走邮件找回。
+- `POST /setup/reset-admin` `{ email, password, disable_2fa? }`：只对平台团队成员生效；设置新密码、撤销全部会话和产品 token，可选移除 TOTP、备用码与 Passkey（v3.1），写审计 `auth.admin_password_reset`。普通用户走邮件找回。
 - 管理员密码至少 12 位；脚本生成 24 位随机密码（去掉易混字符），只在终端显示一次。
 
 

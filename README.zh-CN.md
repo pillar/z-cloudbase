@@ -108,7 +108,7 @@ pnpm platform:destroy --prefix <prefix>              # 要求输入前缀确认�
   pnpm platform:reset-admin --email you@example.com [--disable-2fa]
   ```
 
-  脚本会给 identity Worker 写入一个新的一次性初始化 token（以你的 Cloudflare 登录为准），然后设置新的随机密码、只打印一次，并让该管理员所有已登录的会话下线。
+  脚本会给 identity Worker 写入一个新的一次性初始化 token（以你的 Cloudflare 登录为准），然后设置新的随机密码、只打印一次，并让该管理员所有已登录的会话下线。`--disable-2fa` 会同时移除 TOTP 和 Passkey。
 
 平台没有网页安装向导，也没有公开的管理员注册入口：只有能部署到这个 Cloudflare 账号的人，才能创建第一个管理员。
 

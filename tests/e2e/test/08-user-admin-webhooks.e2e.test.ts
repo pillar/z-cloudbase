@@ -86,7 +86,7 @@ describe('§21.5.1 ban end to end, with user.joined / user.banned / user.unbanne
     const denied = await me();
     expect([denied.status, (await errorOf(denied)).code]).toEqual([403, 'user_banned']);
     const signin = await new Browser(issuer()).request(`${issuer()}/login`, { form: { email: user.email, password: PASSWORD, oauth_query: '' } });
-    expect(signin.status).toBe(401);
+    expect(signin.status).toBe(403);
     expect(await signin.text()).toContain('This account has been banned');
 
     expect((await admin(ownerToken, 'DELETE', `/users/${user.userId}/ban`)).status).toBe(200);

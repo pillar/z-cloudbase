@@ -88,6 +88,7 @@ describe('operator setup', () => {
     await enrollTotp(jar, '', ADMIN_PASSWORD);
     expect((await consoleSignIn(adminEmail, ADMIN_PASSWORD)).stoppedAt).toBe('/two-factor');
 
+    await env.DB.prepare(`INSERT INTO passkey (id, publicKey, userId, credentialID, counter, deviceType, backedUp) VALUES ('pk_test', 'x', ?, 'cred_test', 0, 'singleDevice', 0)`).bind(adminId).run();
     const next = 'Rec0vered-Admin-Passw0rd';
     const res = await setupCall('/reset-admin', { email: adminEmail, password: next, disable_2fa: true });
     expect(res.status).toBe(200);
@@ -98,6 +99,7 @@ describe('operator setup', () => {
     expect((await consoleSignIn(adminEmail, next)).claims?.sub).toBe(adminId);
     const user = await env.DB.prepare('SELECT twoFactorEnabled FROM "user" WHERE id = ?').bind(adminId).first<{ twoFactorEnabled: number }>();
     expect(user!.twoFactorEnabled).toBe(0);
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM passkey WHERE userId = ?').bind(adminId).first<{ n: number }>())!.n).toBe(0);
     expect(await auditRows('auth.admin_password_reset', adminId)).toHaveLength(1);
   });
 
