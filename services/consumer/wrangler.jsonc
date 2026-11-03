@@ -1,0 +1,38 @@
+// Queue consumers + cron (PRD §19.2). Names are local placeholders; `pnpm platform:deploy` generates the real ones (scripts/deploy.ts).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cloudbase-consumer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": { "DEPLOY_ENV": "local" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" },
+    { "binding": "INGEST_DB", "database_name": "cloudbase-ingest", "database_id": "00000000-0000-4000-8000-000000000002", "migrations_dir": "../../database/ingest-migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "STORAGE", "bucket_name": "cloudbase-storage" },
+    { "binding": "ARCHIVE", "bucket_name": "cloudbase-archive" }
+  ],
+  "services": [{ "binding": "IDENTITY", "service": "cloudbase-identity", "entrypoint": "IdentityRpc" }],
+  "analytics_engine_datasets": [{ "binding": "EVENTS_AE", "dataset": "cloudbase_events" }],
+  "queues": {
+    "producers": [
+      // Replay re-enqueues archived DLQ messages onto the original queues.
+      { "binding": "LOGS_QUEUE", "queue": "cloudbase-logs" },
+      { "binding": "EVENTS_QUEUE", "queue": "cloudbase-events" },
+      { "binding": "LOGS_DLQ", "queue": "cloudbase-logs-dlq" },
+      { "binding": "EVENTS_DLQ", "queue": "cloudbase-events-dlq" }
+    ],
+    "consumers": [
+      { "queue": "cloudbase-logs", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "cloudbase-logs-dlq" },
+      { "queue": "cloudbase-events", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "cloudbase-events-dlq" },
+      // DLQ consumers persist dead messages to the archive for inspection and replay.
+      { "queue": "cloudbase-logs-dlq", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3 },
+      { "queue": "cloudbase-events-dlq", "max_batch_size": 100, "max_batch_timeout": 5, "max_retries": 3 }
+    ]
+  },
+  "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
+  "dev": { "port": 8789 }
+}

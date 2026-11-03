@@ -1,0 +1,17 @@
+node_modules/
+.cloudflare/
+.wrangler/
+.dev.vars
+.env
+.env.*
+dist/
+coverage/
+.DS_Store
+worker-configuration.d.ts
+.wrangler-state/
+.claude/
+dist-sdk/
+packages/*/dist/
+# Self-hosted deployments (scripts/platform-deploy.ts): settings record and generated worker configs.
+.deploy/
+wrangler.*.deploy.jsonc

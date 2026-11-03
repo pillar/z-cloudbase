@@ -1,0 +1,24 @@
+{
+  "name": "z-cloudbase",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @z-cloudbase/e2e test:e2e",
+    "bootstrap:local": "pnpm --filter @z-cloudbase/e2e bootstrap",
+    "bootstrap:staging": "pnpm --filter @z-cloudbase/e2e bootstrap:staging",
+    "sdk:pack": "node scripts/build-sdk.mjs",
+    "platform:deploy": "node scripts/platform-deploy.ts",
+    "platform:reset-admin": "node scripts/platform-reset-admin.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "7.0.2"
+  }
+}

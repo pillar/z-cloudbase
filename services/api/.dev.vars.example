@@ -1,0 +1,8 @@
+# Copy to .dev.vars for `wrangler dev`. Never commit real values.
+# HMAC secret for local signed upload/download URLs (DEPLOY_ENV local/test only).
+UPLOAD_SIGNING_SECRET=local-dev-only-change-me
+# R2 S3-compatible credentials for production presigned URLs (remote unverified; set as Worker secrets).
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_NAME=

@@ -1,0 +1,38 @@
+{
+  "name": "@z-cloudbase/server",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jose": "^6.2.12",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "@z-cloudbase/security": "workspace:*",
+    "@z-cloudbase/testing": "workspace:*",
+    "vitest": "^4.1.0"
+  },
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Server SDK: token verification, logs, events, storage with a service key.",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/types/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    },
+    "types": "./dist/types/index.d.ts"
+  }
+}

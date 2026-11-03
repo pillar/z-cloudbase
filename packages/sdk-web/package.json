@@ -1,0 +1,60 @@
+{
+  "name": "@z-cloudbase/web",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth": "./src/auth.ts",
+    "./storage": "./src/storage.ts",
+    "./analytics": "./src/analytics.ts",
+    "./autocapture": "./src/autocapture.ts",
+    "./logs": "./src/logs.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "vitest": "^4.1.0"
+  },
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Web SDK: sign-in (SSO, guest), storage, analytics, browser error logs.",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/types/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./auth": {
+        "types": "./dist/types/auth.d.ts",
+        "import": "./dist/auth.js"
+      },
+      "./storage": {
+        "types": "./dist/types/storage.d.ts",
+        "import": "./dist/storage.js"
+      },
+      "./analytics": {
+        "types": "./dist/types/analytics.d.ts",
+        "import": "./dist/analytics.js"
+      },
+      "./autocapture": {
+        "types": "./dist/types/autocapture.d.ts",
+        "import": "./dist/autocapture.js"
+      },
+      "./logs": {
+        "types": "./dist/types/logs.d.ts",
+        "import": "./dist/logs.js"
+      }
+    },
+    "types": "./dist/types/index.d.ts"
+  }
+}

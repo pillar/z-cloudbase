@@ -1,0 +1,22 @@
+{
+  "name": "@z-cloudbase/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test:e2e": "vitest run",
+    "bootstrap": "node local-stack/bootstrap.ts"
+  },
+  "dependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "@z-cloudbase/server": "workspace:*",
+    "@z-cloudbase/web": "workspace:*",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "playwright-core": "1.56.1",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.148.0"
+  }
+}

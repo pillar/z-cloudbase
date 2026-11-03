@@ -1,0 +1,21 @@
+{
+  "name": "@z-cloudbase/security",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "jose": "^6.2.12",
+    "hono": "^4.13.13"
+  },
+  "devDependencies": {
+    "@z-cloudbase/testing": "workspace:*",
+    "vitest": "^4.1.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@z-cloudbase/testing",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "jose": "^6.2.12"
+  }
+}

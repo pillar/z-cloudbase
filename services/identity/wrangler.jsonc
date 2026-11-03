@@ -1,0 +1,36 @@
+// Identity domain: OIDC issuer, login / link UI, sessions (PRD §19.2).
+// database_id values are local placeholders; `pnpm platform:deploy` generates the real ones (scripts/deploy.ts).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cloudbase-identity",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "ISSUER": "http://localhost:8787",
+    "DEPLOY_ENV": "local",
+    // Display name on the sign-in pages, in mail and as the TOTP issuer (set by `pnpm platform:deploy --name`).
+    "PLATFORM_NAME": "CloudBase",
+    // "true": console sign-in requires TOTP enrollment; otherwise admins may enable it themselves.
+    "REQUIRE_ADMIN_2FA": "false",
+    // Turnstile widget site key (PRD §19.11). This is Cloudflare's public TESTING key ("always passes",
+    // tokens are the dummy XXXX.DUMMY.TOKEN.XXXX); a deployment sets its real site key here and the
+    // TURNSTILE_SECRET_KEY secret (siteverify). With DEPLOY_ENV=local no secret is used (src/turnstile.ts).
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "cloudbase-platform", "database_id": "00000000-0000-4000-8000-000000000001", "migrations_dir": "../../database/migrations" }
+  ],
+  // Private archive: completed data exports (exports/{user_id}/...) are downloaded from here (PRD §19.8).
+  "r2_buckets": [
+    { "binding": "ARCHIVE", "bucket_name": "cloudbase-archive" }
+  ],
+  // AUTH_SECRET: Better Auth secret (>= 32 chars). Local dev reads it from .dev.vars (not committed).
+  // SETUP_TOKEN: operator setup (src/setup.ts); without it the /setup routes do not exist, so local dev
+  // only warns when it is missing. Listing it here is what makes `wrangler dev` load it (a `secrets`
+  // block limits local secrets to the listed names). Deployments get both from scripts/platform-deploy.ts.
+  // Further optional secrets of a deployment: RESEND_API_KEY, TURNSTILE_SECRET_KEY, Google / Apple.
+  "secrets": { "required": ["AUTH_SECRET", "SETUP_TOKEN"] },
+  "dev": { "port": 8787 }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@z-cloudbase/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  },
+  "sideEffects": false
+}

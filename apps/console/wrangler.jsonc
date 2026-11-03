@@ -1,0 +1,9 @@
+// Console static site on Workers Static Assets (no Worker code). `pnpm platform:deploy` (scripts/deploy.ts) builds it
+// with the deployment's VITE_* values and deploys `dist/` with a generated config (name, route).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cloudbase-console",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
+  "workers_dev": false
+}

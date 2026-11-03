@@ -1,0 +1,18 @@
+// LOCAL-ONLY dev gateway for the multi-worker stack (tests/e2e, `pnpm bootstrap:local`). Never deployed.
+// `wrangler dev -c a -c b ...` only exposes the FIRST config over HTTP; the others are reachable only
+// through service bindings from it (developers.cloudflare.com/workers/development-testing/multi-workers/).
+// This worker is that first config: it forwards by hostname to the identity / api workers and exposes
+// one operator RPC (DLQ replay) that has no public HTTP route.
+{
+  "$schema": "../../../../node_modules/wrangler/config-schema.json",
+  "name": "cloudbase-local-gateway",
+  "main": "gateway.js",
+  "compatibility_date": "2026-10-01",
+  // Defence in depth against an accidental deploy: no workers.dev route (and gateway.js only answers loopback hosts).
+  "workers_dev": false,
+  "services": [
+    { "binding": "IDENTITY", "service": "cloudbase-identity" },
+    { "binding": "API", "service": "cloudbase-api" },
+    { "binding": "CONSUMER_OPS", "service": "cloudbase-consumer", "entrypoint": "ConsumerOps" }
+  ]
+}

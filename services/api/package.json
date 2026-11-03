@@ -1,0 +1,25 @@
+{
+  "name": "@z-cloudbase/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "typecheck": "wrangler types >/dev/null && tsc -p .",
+    "test": "wrangler types >/dev/null && vitest run"
+  },
+  "dependencies": {
+    "@z-cloudbase/contracts": "workspace:*",
+    "@z-cloudbase/security": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "hono": "^4.13.13",
+    "jose": "^6.2.12",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@z-cloudbase/testing": "workspace:*",
+    "@cloudflare/vitest-plugin": "^1.3.7",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.148.0"
+  }
+}
