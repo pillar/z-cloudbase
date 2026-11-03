@@ -8,3 +8,5 @@ export * from './storage.ts';
 export * from './admin.ts';
 export * from './identity-rpc.ts';
 export * from './me.ts';
+export * from './user-admin.ts';
+export * from './webhooks.ts';

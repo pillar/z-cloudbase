@@ -62,6 +62,8 @@ export async function verifyConsoleToken(
   const { payload } = await verifyJwt(token, { ...opts, audience: CONSOLE_AUDIENCE });
   const parsed = ConsoleTokenClaims.safeParse(payload);
   if (!parsed.success) throw new ApiError('invalid_token', 'Access token claims are malformed');
+  // The identity domain never authorizes the console during an impersonation (PRD §21.5.2); refuse one anyway.
+  if (parsed.data.act) throw new ApiError('invalid_token', 'Impersonation tokens cannot be used for the console');
   return parsed.data;
 }
 
