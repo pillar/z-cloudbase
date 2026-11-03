@@ -9,55 +9,30 @@ import type { RequestIdVars } from '@z-cloudbase/security';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { getContext } from 'hono/context-storage';
 import { html } from 'hono/html';
-import type { HtmlEscapedString } from 'hono/utils/html';
 import { AUTH_BASE_PATH } from './auth.ts';
 import { magicLinkAvailable, mailAvailable } from './email.ts';
-import { langOf, langSwitch } from './i18n.ts';
+import { langSwitch } from './i18n.ts';
 import { emailSignupAvailable, getAuth } from './instance.ts';
 import { account, listAccountRequests } from './account.ts';
 import { claimInvitation, completeInvitation, findPendingInvitation, redemption, releaseInvitation } from './invitations.ts';
 import { linkEmailPassword } from './link.ts';
-import { uiMessages, type UiMessages } from './messages.ts';
+import { notice, page, tr, type Html } from './layout.ts';
+import { engineMessage, passkeyErrorMessages, statusLabel, type UiMessages } from './messages.ts';
 import { PASSKEY_SCRIPT } from './passkey.ts';
-import { platformName } from './platform.ts';
-import { brand, passkeysEnabled, requireEmailVerification, signupMode } from './settings.ts';
+import { passkeysEnabled, requireEmailVerification, signupMode } from './settings.ts';
 import {
   TURNSTILE_FIELD, clientIp, normalizeEmail, passesTurnstile, recordOutcome, resetOutcome, signInOutcome, turnstileError,
   turnstileRequired, turnstileWidget, type Attempt,
 } from './turnstile.ts';
 
 type UiEnv = { Bindings: Env; Variables: RequestIdVars };
-type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 type C = Context<UiEnv>;
 
-/** Messages of the request's language. */
-const tr = (c: C): UiMessages => uiMessages[langOf(c)];
-
-/**
- * Page layout. Pages are rendered inside a request: name, branding and language come from its env and
- * headers (contextStorage in index.ts). `here` is the address the language switch reloads (default:
- * the current GET address); the tagline appears on the sign-in page only.
- */
-const page = (title: string, body: Html, o: { here?: string; tagline?: boolean } = {}) => {
-  const c = getContext<UiEnv>();
-  const lang = langOf(c);
-  const t = uiMessages[lang];
-  const b = brand(c.env);
-  const name = platformName(c.env);
-  const url = new URL(c.req.url);
-  const here = o.here ?? (c.req.method === 'GET' ? `${url.pathname}${url.search}` : url.pathname);
-  const switchTo = `${here}${here.includes('?') ? '&' : '?'}lang=${lang === 'zh' ? 'en' : 'zh'}`;
-  // The color passed the strict hex check in settings.ts; hono/html escapes it as well.
-  const color = b.primaryColor ?? '#4f46e5';
-  return html`<!doctype html><html lang="${lang === 'zh' ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · ${name}</title>
-<style>:root{--brand:${color}}body{font-family:system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 1rem;line-height:1.5}header{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem}header .lang{margin-left:auto}a{color:var(--brand)}button{background:var(--brand);color:#fff;border:0;border-radius:.375rem;padding:.5rem .9rem;cursor:pointer}button[disabled]{opacity:.6}label{display:block;margin:.5rem 0}input{display:block;width:100%;box-sizing:border-box;padding:.4rem}form{margin:1rem 0}.tagline{color:#555}</style></head>
-<body><header>${b.logoUrl ? html`<img src="${b.logoUrl}" alt="${name}" height="32">` : ''}<strong>${name}</strong><a class="lang" href="${switchTo}" hreflang="${lang === 'zh' ? 'en' : 'zh'}">${t.otherLanguage}</a></header>
-<main><h1>${title}</h1>${o.tagline && b.tagline ? html`<p class="tagline">${b.tagline}</p>` : ''}${body}</main></body></html>`;
+/** The passkey script and the element its errors go to (with the localized texts of known error codes). */
+const passkeyAssets = () => {
+  const t = tr(getContext<UiEnv>());
+  return html`<p id="passkey-error" role="alert" hidden data-messages="${JSON.stringify(passkeyErrorMessages(t))}"></p><script src="/assets/passkey.js" defer></script>`;
 };
-
-const notice = (message: string | undefined) => (message ? html`<p role="alert">${message}</p>` : '');
-/** The passkey script and the element its errors go to. */
-const passkeyAssets = () => html`<p id="passkey-error" role="alert" hidden></p><script src="/assets/passkey.js" defer></script>`;
 
 interface EngineAnswer {
   ok: boolean;
@@ -143,27 +118,30 @@ ui.get('/', (c) => c.redirect('/account', 302));
 // --- sign in / register / password reset -------------------------------------------------
 
 /** `oauth_query` is the engine-signed authorization request; it must be posted back unchanged. */
-const loginForm = (c: C, oauthQuery: string, message?: string, widget: Widget = '') => {
+const loginForm = (c: C, oauthQuery: string, message?: string, widget: Widget = '', email = '') => {
   const t = tr(c);
   const social = socialConfigured(c.env);
+  const passkeys = passkeysEnabled(c.env);
+  const magic = magicLinkAvailable(c.env);
   return page(
     t.signIn,
     html`${notice(message)}<form method="post" action="/login">
-      <label>${t.email} <input name="email" type="email" autocomplete="username webauthn" required></label>
+      <label>${t.email} <input name="email" type="email" autocomplete="username webauthn" value="${email}" required></label>
       <label>${t.password} <input name="password" type="password" autocomplete="current-password" required></label>
       <input type="hidden" name="oauth_query" value="${oauthQuery}">
       ${widget}<button>${t.signInButton}</button></form>
-      ${passkeysEnabled(c.env)
-        ? html`<p><button type="button" hidden data-passkey-signin data-oauth-query="${oauthQuery}" data-failed="${t.passkeyFailed}">${t.passkeySignIn}</button></p>${passkeyAssets()}`
+      ${passkeys || magic || social.google || social.apple ? html`<p class="or">${t.orContinueWith}</p>` : ''}
+      ${passkeys
+        ? html`<p><button type="button" class="secondary" hidden data-passkey-signin data-oauth-query="${oauthQuery}" data-failed="${t.passkeyFailed}">${t.passkeySignIn}</button></p>${passkeyAssets()}`
         : ''}
-      ${magicLinkAvailable(c.env)
-        ? html`<form method="post" action="/login/magic-link"><label>${t.email} <input name="email" type="email" autocomplete="email" required></label>
-            <input type="hidden" name="oauth_query" value="${oauthQuery}"><button>${t.magicLinkButton}</button></form>`
+      ${magic
+        ? html`<form method="post" action="/login/magic-link"><label>${t.magicLinkEmail} <input name="email" type="email" autocomplete="email" required></label>
+            <input type="hidden" name="oauth_query" value="${oauthQuery}"><button class="secondary">${t.magicLinkButton}</button></form>`
         : ''}
       ${social.google || social.apple
         ? html`<form method="post" action="/login/social"><input type="hidden" name="oauth_query" value="${oauthQuery}">
-            ${social.google ? html`<button name="provider" value="google">${t.continueWithGoogle}</button> ` : ''}
-            ${social.apple ? html`<button name="provider" value="apple">${t.continueWithApple}</button>` : ''}</form>`
+            ${social.google ? html`<button class="secondary" name="provider" value="google">${t.continueWithGoogle}</button> ` : ''}
+            ${social.apple ? html`<button class="secondary" name="provider" value="apple">${t.continueWithApple}</button>` : ''}</form>`
         : ''}
       <p>${openRegistration(c.env) ? html`<a href="${withQuery('/register', oauthQuery)}">${t.createAccount}</a> · ` : ''}<a href="/forgot-password">${t.forgotPassword}</a></p>`,
     { here: withQuery('/login', oauthQuery), tagline: true },
@@ -202,7 +180,10 @@ ui.post('/login', async (c) => {
     ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
   });
   await recordOutcome(c.env, attempt, signInOutcome(r.status));
-  if (!r.ok) return c.html(loginForm(c, oauthQuery, r.data?.message ?? t.signInFailed, await challenge(c, attempt.email)), r.status === 403 ? 403 : 401);
+  if (!r.ok) {
+    const message = engineMessage(t, r.data, t.signInFailed);
+    return c.html(loginForm(c, oauthQuery, message, await challenge(c, attempt.email), str(form.email)), r.status === 403 ? 403 : 401);
+  }
   // TOTP is enabled: the engine set a short-lived two_factor cookie instead of a session.
   if (r.data?.twoFactorRedirect) return c.redirect(`/two-factor?${new URLSearchParams({ oauth_query: oauthQuery })}`, 302);
   // Inside an authorization request the engine answers with the client redirect.
@@ -251,7 +232,7 @@ ui.post('/login/social', async (c) => {
     disableRedirect: true,
     ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
   });
-  if (!r.ok || !r.data?.url) return c.html(loginForm(c, oauthQuery, r.data?.message ?? tr(c).methodUnavailable), 400);
+  if (!r.ok || !r.data?.url) return c.html(loginForm(c, oauthQuery, engineMessage(tr(c), r.data, tr(c).methodUnavailable)), 400);
   return c.redirect(r.data.url, 302);
 });
 
@@ -283,7 +264,7 @@ ui.post('/login/magic-link', async (c) => {
     errorCallbackURL: '/login?magic=1',
   });
   if (!r.ok && r.data?.code === 'INVALID_CALLBACK') throw new ApiError('invalid_request', 'Invalid continuation');
-  if (r.status === 400 && r.data?.code === 'VALIDATION_ERROR') return c.html(loginForm(c, oauthQuery, r.data?.message ?? t.signInFailed), 400);
+  if (r.status === 400 && r.data?.code === 'VALIDATION_ERROR') return c.html(loginForm(c, oauthQuery, engineMessage(tr(c), r.data, t.signInFailed)), 400);
   return c.html(page(t.checkInbox, html`<p>${t.magicLinkSent}</p><p><a href="${withQuery('/login', oauthQuery)}">${t.signIn}</a></p>`));
 });
 
@@ -347,7 +328,7 @@ ui.post('/register', async (c) => {
     const user = r.ok ? await ctx.internalAdapter.findUserByEmail(claimed.email) : null;
     if (!user) {
       await releaseInvitation(c.env.DB, claimed.id);
-      return c.html(registerForm(c, '', { message: r.data?.message ?? t.registerFailed, invite: { token, email: claimed.email } }), 400);
+      return c.html(registerForm(c, '', { message: engineMessage(tr(c), r.data, t.registerFailed), invite: { token, email: claimed.email } }), 400);
     }
     await completeInvitation(c.env.DB, claimed.id, user.user.id, c.get('requestId'));
     const done = claimed.verified || !verifyAfter ? t.registerDone : t.registerSent;
@@ -355,7 +336,7 @@ ui.post('/register', async (c) => {
   }
   // The engine answers the same whether or not the email is already registered (anti-enumeration).
   const r = await engine(c, '/sign-up/email', { email: str(form.email), password: str(form.password), name: '', callbackURL: '/login?verified=1' });
-  if (!r.ok) return c.html(registerForm(c, oauthQuery, { message: r.data?.message ?? t.registerFailed }), r.status === 403 ? 403 : 400);
+  if (!r.ok) return c.html(registerForm(c, oauthQuery, { message: engineMessage(tr(c), r.data, t.registerFailed) }), r.status === 403 ? 403 : 400);
   return c.html(
     page(t.checkInbox, html`<p>${verifyAfter ? t.registerSent : t.registerSentNoVerify}</p><p><a href="${withQuery('/login', oauthQuery)}">${t.signIn}</a></p>`),
   );
@@ -408,7 +389,7 @@ ui.post('/reset-password', async (c) => {
   }
   const r = await engine(c, '/reset-password', { token: str(form.token), newPassword: str(form.password) });
   await recordOutcome(c.env, attempt, resetOutcome(r.status));
-  if (!r.ok) return c.html(resetForm(c, str(form.token), r.data?.message ?? t.linkInvalid, await challenge(c)), 400);
+  if (!r.ok) return c.html(resetForm(c, str(form.token), engineMessage(tr(c), r.data, t.linkInvalid), await challenge(c)), 400);
   return c.html(page(t.passwordChanged, html`<p>${t.passwordChangedBody} <a href="/login">${t.signIn}</a></p>`));
 });
 
@@ -450,7 +431,7 @@ ui.post('/two-factor', async (c) => {
   // Six digits come from the authenticator app; anything else is a one-time backup code.
   const path = /^\d{6}$/.test(code) ? '/two-factor/verify-totp' : '/two-factor/verify-backup-code';
   const r = await engine(c, path, { code, ...(oauthQuery ? { oauth_query: oauthQuery } : {}) });
-  if (!r.ok) return c.html(codeForm(c, oauthQuery, ret, r.data?.message ?? tr(c).invalidCode), 401);
+  if (!r.ok) return c.html(codeForm(c, oauthQuery, ret, engineMessage(tr(c), r.data, tr(c).invalidCode)), 401);
   return c.redirect(r.data?.url || resumeTarget(c, ret) || '/account', 302);
 });
 
@@ -493,7 +474,7 @@ ui.post('/two-factor/setup', async (c) => {
   const password = str(form.password);
   const r = await engine(c, '/two-factor/enable', password ? { password } : {});
   const uri = r.data?.totpURI;
-  if (!r.ok || !uri) return c.html(setupStart(c, ret, r.data?.message ?? t.setupFailed), r.ok ? 500 : 400);
+  if (!r.ok || !uri) return c.html(setupStart(c, ret, engineMessage(tr(c), r.data, t.setupFailed)), r.ok ? 500 : 400);
   const secret = new URL(uri).searchParams.get('secret') ?? '';
   c.header('cache-control', 'no-store');
   return c.html(
@@ -518,7 +499,7 @@ ui.post('/two-factor/setup/confirm', async (c) => {
   const ret = str(form.return);
   const r = await engine(c, '/two-factor/verify-totp', { code: str(form.code).trim() });
   if (!r.ok) {
-    return c.html(page(t.setupTitle, html`${notice(r.data?.message ?? t.invalidCode)}${setupConfirmForm(t, ret)}`), 400);
+    return c.html(page(t.setupTitle, html`${notice(engineMessage(tr(c), r.data, t.invalidCode))}${setupConfirmForm(t, ret)}`), 400);
   }
   return c.redirect(resumeTarget(c, ret) ?? '/account', 302);
 });
@@ -541,7 +522,7 @@ ui.get('/consent', (c) => {
 ui.post('/consent', async (c) => {
   const form = await c.req.parseBody();
   const r = await engine(c, '/oauth2/consent', { accept: form.accept === 'true', oauth_query: str(form.oauth_query) });
-  if (!r.ok || !r.data?.url) throw new ApiError('invalid_request', r.data?.message ?? tr(c).consentInvalid);
+  if (!r.ok || !r.data?.url) throw new ApiError('invalid_request', engineMessage(tr(c), r.data, tr(c).consentInvalid));
   return c.redirect(r.data.url, 302);
 });
 
@@ -572,6 +553,7 @@ ui.get('/account', async (c) => {
     .bind(session.user.id)
     .all<{ product_id: string; name: string; status: string; joined_at: number; last_seen_at: number | null }>();
   const anonymous = Boolean(session.user.isAnonymous);
+  const impersonated = Boolean((session.session as { impersonatedBy?: string | null }).impersonatedBy);
   const who = anonymous ? t.guest : session.user.email;
   const requests = await listAccountRequests(c.env.DB, session.user.id);
   const pendingDeletion = requests.find((r) => r.kind === 'delete' && r.status === 'pending');
@@ -584,39 +566,46 @@ ui.get('/account', async (c) => {
       html`<p>${t.signedInAs(who)}</p>
         <h2>${t.products}</h2>
         ${results.length
-          ? html`<table><thead><tr><th>${t.product}</th><th>${t.status}</th><th>${t.joined}</th><th>${t.lastSeen}</th></tr></thead><tbody>
-              ${results.map((m) => html`<tr><td>${m.name}</td><td>${m.status}</td><td>${fmt(m.joined_at)}</td><td>${fmt(m.last_seen_at)}</td></tr>`)}
-              </tbody></table>`
+          ? html`<div class="table"><table><thead><tr><th>${t.product}</th><th>${t.status}</th><th>${t.joined}</th><th>${t.lastSeen}</th></tr></thead><tbody>
+              ${results.map((m) => html`<tr><td>${m.name}</td><td>${statusLabel(t, m.status)}</td><td>${fmt(m.joined_at)}</td><td>${fmt(m.last_seen_at)}</td></tr>`)}
+              </tbody></table></div>`
           : html`<p>${t.noProducts}</p>`}
         <p><a href="/link">${t.signInMethods}</a> · ${session.user.twoFactorEnabled ? t.twoFactorOn : html`<a href="/two-factor/setup">${t.setup2fa}</a>`}</p>
         ${passkeys
           ? html`<h2>${t.passkeys}</h2>
               ${passkeys.length
-                ? html`<table><thead><tr><th>${t.passkeyName}</th><th>${t.created}</th><th></th></tr></thead><tbody>
+                ? html`<div class="table"><table><thead><tr><th>${t.passkeyName}</th><th>${t.created}</th><th><span hidden>${t.remove}</span></th></tr></thead><tbody>
                     ${passkeys.map((p) => html`<tr><td>${p.name || t.passkeys}</td><td>${fmt(p.createdAt)}</td>
-                      <td><form method="post" action="/account/passkeys/delete"><input type="hidden" name="id" value="${p.id}"><button>${t.remove}</button></form></td></tr>`)}
-                    </tbody></table>`
+                      <td><form method="post" action="/account/passkeys/delete"><input type="hidden" name="id" value="${p.id}"><button class="danger">${t.remove}</button></form></td></tr>`)}
+                    </tbody></table></div>`
                 : html`<p>${t.noPasskeys}</p>`}
-              <p><button type="button" hidden data-passkey-register data-next="/account" data-failed="${t.passkeyFailed}">${t.addPasskey}</button></p>
-              <p>${t.passkeyHint}</p>${passkeyAssets()}`
+              <p><button type="button" class="secondary" hidden data-passkey-register data-next="/account" data-failed="${t.passkeyFailed}">${t.addPasskey}</button></p>
+              <p class="muted">${t.passkeyHint}</p>${passkeyAssets()}`
           : ''}
         <h2>${t.yourData}</h2>
-        <p>${t.dataIntro}</p>
-        <form method="post" action="/account/export"><button>${t.requestExport}</button></form>
+        <p class="muted">${t.dataIntro}</p>
+        <form method="post" action="/account/export"><button class="secondary">${t.requestExport}</button></form>
         ${pendingDeletion
           ? html`<p>${t.deletionScheduled(pendingDeletion.due_at.slice(0, 10))}</p>
-              <form method="post" action="/account/deletion/cancel"><button>${t.cancelDeletion}</button></form>`
-          : html`<form method="post" action="/account/deletion"><button>${t.deleteAccount}</button></form>`}
+              <form method="post" action="/account/deletion/cancel"><button class="secondary">${t.cancelDeletion}</button></form>`
+          : html`<form method="post" action="/account/deletion"><button class="danger">${t.deleteAccount}</button></form>`}
         ${requests.length
-          ? html`<table><thead><tr><th>${t.request}</th><th>${t.status}</th><th>${t.requested}</th><th></th></tr></thead><tbody>
-              ${requests.map((r) => html`<tr><td>${r.kind === 'export' ? t.dataExport : t.accountDeletion}</td><td>${r.status}</td><td>${r.requested_at.slice(0, 10)}</td>
+          ? html`<div class="table"><table><thead><tr><th>${t.request}</th><th>${t.status}</th><th>${t.requested}</th><th><span hidden>${t.download}</span></th></tr></thead><tbody>
+              ${requests.map((r) => html`<tr><td>${r.kind === 'export' ? t.dataExport : t.accountDeletion}</td><td>${statusLabel(t, r.status)}</td><td>${r.requested_at.slice(0, 10)}</td>
                 <td>${r.kind === 'export' && r.status === 'completed'
                   ? html`<form method="post" action="/account/exports/${r.id}/link"><button>${t.download}</button></form>`
                   : ''}</td></tr>`)}
-              </tbody></table>`
-          : ''}`,
+              </tbody></table></div>`
+          : ''}
+        ${impersonated ? '' : html`<form method="post" action="/logout"><button class="secondary">${t.signOut}</button></form>`}`,
     ),
   );
+});
+
+// Signing out ends the engine session (product tokens keep their own lifetime); then the sign-in page.
+ui.post('/logout', async (c) => {
+  await engine(c, '/sign-out', {});
+  return c.redirect('/login', 303);
 });
 
 // Removing a passkey goes through the engine (ownership check, PRD §19.4 re-authentication window).
@@ -697,6 +686,6 @@ ui.post('/link/social', async (c) => {
     errorCallbackURL: '/link',
     disableRedirect: true,
   });
-  if (!r.ok || !r.data?.url) return linkPage(c, r.data?.message ?? tr(c).linkingFailed, 403);
+  if (!r.ok || !r.data?.url) return linkPage(c, engineMessage(tr(c), r.data, tr(c).linkingFailed), 403);
   return c.redirect(r.data.url, 302);
 });

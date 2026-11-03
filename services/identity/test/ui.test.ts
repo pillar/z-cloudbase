@@ -65,6 +65,42 @@ describe('identity pages', () => {
     expect(jar.cookies.size).toBe(0);
   });
 
+  it('engine errors are shown in the page language; the form keeps the email', async () => {
+    const { email } = await signUp(new CookieJar());
+    const zh = await call('/login', { form: { email, password: 'wrong password!' }, headers: { 'accept-language': 'zh-CN' } });
+    const text = await zh.text();
+    expect(text).toContain('邮箱或密码不正确');
+    expect(text).not.toContain('Invalid email or password');
+    expect(text).toContain(`value="${email}"`);
+    const en = await (await call('/login', { form: { email, password: 'wrong password!' }, headers: { 'accept-language': 'en' } })).text();
+    expect(en).toContain('Invalid email or password');
+  });
+
+  it('a refused browser navigation gets an HTML error page; API callers keep the JSON body', async () => {
+    const page = await call('/guest?authorize=https://evil.example.test/', { headers: { accept: 'text/html', 'accept-language': 'zh-CN' } });
+    expect(page.status).toBe(400);
+    expect(page.headers.get('content-type')).toMatch(/text\/html/);
+    const text = await page.text();
+    expect(text).toContain('请求无效或已过期');
+    expect(text).toMatch(/req_[0-9a-f-]+/);
+    const api = await call('/guest?authorize=https://evil.example.test/', { headers: { accept: 'application/json' } });
+    expect(api.status).toBe(400);
+    expect(await api.json()).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+
+  it('sign-out ends the identity session', async () => {
+    const jar = new CookieJar();
+    await signUp(jar);
+    expect(await (await call('/account', { jar })).text()).toContain('action="/logout"');
+    // The passkey script gets the page language's texts for known engine error codes.
+    const zh = await (await call('/account', { jar, headers: { 'accept-language': 'zh-CN' } })).text();
+    expect(zh).toMatch(/data-messages="[^"]*SECOND_FACTOR_REQUIRED[^"]*请先完成两步验证/);
+    const res = await call('/logout', { jar, form: {} });
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/login');
+    expect(await (await call('/api/auth/get-session', { jar })).json()).toBeNull();
+  });
+
   it('form posts from another origin are refused', async () => {
     const { email } = await signUp(new CookieJar());
     const res = await call('/login', { headers: { origin: 'https://evil.example.test' }, form: { email, password: PASSWORD } });

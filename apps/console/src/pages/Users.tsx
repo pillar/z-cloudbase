@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Ban, Download, ExternalLink, Loader2, MoreHorizontal, Search, ShieldOff, UserCog } from 'lucide-react';
+import { Ban, Download, ExternalLink, Loader2, MoreHorizontal, Search, ShieldAlert, ShieldOff, UserCog } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   BAN_REASON_MAX, IMPERSONATION_MAX_S, IMPERSONATION_REASON_MAX, IMPERSONATION_REASON_MIN, IMPERSONATION_REQUEST_TTL_S, USER_EXPORT_PAGE_ROWS, type Environment,
 } from '@z-cloudbase/contracts';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import { ApiRequestError } from '../api.ts';
+import { readConfig } from '../config.ts';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
 import type { Impersonation, MembershipRow, UserLookup } from '../types.ts';
 import {
@@ -51,8 +54,8 @@ const messages = defineMessages({
     confirm_desc: '该用户在此产品下已签发的令牌会被撤销。',
     updated: '成员状态已更新',
     banned: '已封禁',
-    ban_until: (time: string) => `封禁至 ${time}`,
-    ban_permanent: '永久封禁',
+    ban_until: (time: string) => `至 ${time}`,
+    ban_permanent: '永久',
     ban_reason: (reason: string) => `原因：${reason}`,
     ban: '封禁',
     unban: '解除封禁',
@@ -79,6 +82,8 @@ const messages = defineMessages({
     imp_started: '已在新标签页打开确认页',
     imp_ready: '确认页地址（如果新标签页被浏览器拦截，请手动打开）：',
     imp_open: '打开确认页',
+    imp_mfa_required: '发起支持会话前，你的账号需要先开启两步验证（TOTP）。在身份域的账号页设置后再试。',
+    imp_setup_2fa: '设置两步验证',
     imp_expires: (time: string) => `请在 ${time} 前完成确认。`,
     close: '关闭',
     export_title: '导出用户（CSV）',
@@ -117,8 +122,8 @@ const messages = defineMessages({
     confirm_desc: 'Their tokens for this product will be revoked.',
     updated: 'Membership updated',
     banned: 'Banned',
-    ban_until: (time: string) => `Banned until ${time}`,
-    ban_permanent: 'Banned permanently',
+    ban_until: (time: string) => `until ${time}`,
+    ban_permanent: 'permanent',
     ban_reason: (reason: string) => `Reason: ${reason}`,
     ban: 'Ban',
     unban: 'Unban',
@@ -145,6 +150,8 @@ const messages = defineMessages({
     imp_started: 'Confirmation page opened in a new tab',
     imp_ready: 'Confirmation page (open it manually if the browser blocked the new tab):',
     imp_open: 'Open confirmation page',
+    imp_mfa_required: 'Support sessions require two-factor authentication (TOTP) on your own account. Set it up on the identity domain, then try again.',
+    imp_setup_2fa: 'Set up two-factor authentication',
     imp_expires: (time: string) => `Confirm before ${time}.`,
     close: 'Close',
     export_title: 'Export users (CSV)',
@@ -229,6 +236,15 @@ function BanDialog({ userId, open, onOpenChange, onDone }: { userId: string; ope
   );
 }
 
+/** Identity domain (two-factor setup link); App.tsx has already validated the configuration. */
+const issuer = (() => {
+  try {
+    return readConfig(import.meta.env as Record<string, string | undefined>, location.origin).issuer;
+  } catch {
+    return '';
+  }
+})();
+
 /** Owner-only impersonation request; the owner confirms with TOTP on the identity domain. */
 function ImpersonateDialog({ userId, open, onOpenChange }: { userId: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const { api } = useApp();
@@ -237,20 +253,32 @@ function ImpersonateDialog({ userId, open, onOpenChange }: { userId: string; ope
   const f = useFormat();
   const [reason, setReason] = useState('');
   const [started, setStarted] = useState<Impersonation | null>(null);
+  const [needsMfa, setNeedsMfa] = useState(false);
   const act = useAction();
   const enough = reason.trim().length >= IMPERSONATION_REASON_MIN;
   async function submit(e: FormEvent) {
     e.preventDefault();
     let res: Impersonation | undefined;
-    if (await act.run(async () => (res = await api.post<Impersonation>(`/users/${encodeURIComponent(userId)}/impersonations`, { reason: reason.trim() })))) {
-      setStarted(res!);
-      window.open(res!.url, '_blank', 'noopener');
+    setNeedsMfa(false);
+    const ok = await act.run(async () => {
+      try {
+        res = await api.post<Impersonation>(`/users/${encodeURIComponent(userId)}/impersonations`, { reason: reason.trim() });
+      } catch (err) {
+        // The owner has no TOTP yet: explain where to turn it on instead of the raw server message.
+        if (err instanceof ApiRequestError && err.details?.reason === 'mfa_required') return setNeedsMfa(true);
+        throw err;
+      }
+    });
+    if (ok && res) {
+      setStarted(res);
+      window.open(res.url, '_blank', 'noopener');
       toast.success(t.imp_started);
     }
   }
   const change = (o: boolean) => {
     onOpenChange(o);
     act.clear();
+    setNeedsMfa(false);
     if (!o) {
       setStarted(null);
       setReason('');
@@ -283,6 +311,20 @@ function ImpersonateDialog({ userId, open, onOpenChange }: { userId: string; ope
             </div>
           )}
           <ErrorBanner message={act.error} />
+          {needsMfa && (
+            <Alert>
+              <ShieldAlert />
+              <AlertDescription className="space-y-2">
+                <p>{t.imp_mfa_required}</p>
+                <Button type="button" size="sm" variant="outline" asChild>
+                  <a href={`${issuer}/two-factor/setup`} target="_blank" rel="noopener">
+                    <ExternalLink />
+                    {t.imp_setup_2fa}
+                  </a>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           <DialogFooter>
             {started ? (
               <>

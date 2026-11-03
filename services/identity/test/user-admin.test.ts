@@ -214,6 +214,10 @@ describe('impersonation (PRD §21.5.2)', () => {
     const confirm = await call(`/impersonation/${id}`, { jar: admin.jar });
     expect(confirm.status).toBe(200);
     expect(await confirm.text()).toContain('ticket #42');
+    // The confirmation page follows the page language (PRD §21.4).
+    const zh = await (await call(`/impersonation/${id}`, { jar: admin.jar, headers: { 'accept-language': 'zh-CN' } })).text();
+    expect(zh).toContain('<html lang="zh-CN"');
+    expect(zh).toContain('开始支持会话');
     expect((await call(`/impersonation/${id}/start`, { jar: admin.jar, form: { code: '000000' } })).status).toBe(401);
     const started = await call(`/impersonation/${id}/start`, { jar: admin.jar, form: { code: await totp(admin.secret) } });
     expect(started.status).toBe(302);
@@ -278,6 +282,15 @@ describe('impersonation (PRD §21.5.2)', () => {
     for (const path of ['/account/export', '/account/deletion', '/link/email']) {
       expect((await call(path, { jar, form: {} })).status, path).toBe(403);
     }
+    // A browser form post gets a readable page in its language (JSON stays for API callers).
+    const refused = await call('/account/export', { jar, form: {}, headers: { accept: 'text/html', 'accept-language': 'zh-CN' } });
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get('content-type')).toMatch(/text\/html/);
+    expect(await refused.text()).toContain('支持会话期间不能执行这个操作');
+    // The banner is in the page's language as well.
+    const zhPage = await (await call('/account', { jar, headers: { 'accept-language': 'zh-CN' } })).text();
+    expect(zhPage).toContain('结束支持会话');
+    expect(zhPage).not.toContain('End support session');
     const nested = await requestImpersonation(admin.userId, (await signUp(new CookieJar())).userId);
     expect((await call(`/impersonation/${nested}/start`, { jar, form: { code: await totp(admin.secret) } })).status).toBe(403);
     // Still impersonating; sign-out ends it.

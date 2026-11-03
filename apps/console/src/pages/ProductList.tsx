@@ -27,6 +27,7 @@ const messages = defineMessages({
     created: '创建于',
     empty: '没有可见的产品',
     emptyHint: '你还没有被授权访问任何产品。',
+    emptyHintOwner: '还没有产品。点击“新建产品”创建第一个。',
     createdOk: '产品已创建',
     open: '公开',
     restricted: '受限',
@@ -46,6 +47,7 @@ const messages = defineMessages({
     created: 'Created',
     empty: 'No products visible to you',
     emptyHint: 'You have not been granted access to any product yet.',
+    emptyHintOwner: 'No products yet. Use “New product” to create the first one.',
     createdOk: 'Product created',
     open: 'Open',
     restricted: 'Restricted',
@@ -66,7 +68,7 @@ export function ProductList() {
       <PageHeader title={t.title} description={t.description} actions={isOwner(me) && <NewProduct onCreated={list.reload} />} />
       <ErrorBanner message={list.error} />
       <Loading loading={list.loading} rows={4} />
-      {list.data && list.data.products.length === 0 && <EmptyState title={t.empty} description={t.emptyHint} />}
+      {list.data && list.data.products.length === 0 && <EmptyState title={t.empty} description={isOwner(me) ? t.emptyHintOwner : t.emptyHint} />}
       {list.data && list.data.products.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {list.data.products.map((p) => (
@@ -141,8 +143,8 @@ function NewProduct({ onCreated }: { onCreated: () => void }) {
         <form onSubmit={submit} className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="np-id">{t.productId}</Label>
-            <Input id="np-id" required pattern="[a-z][a-z0-9_]{2,31}" value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} />
-            <p className="text-muted-foreground text-sm">{t.productIdHelp}</p>
+            <Input id="np-id" required pattern="[a-z][a-z0-9_]{2,31}" title={t.productIdHelp} aria-describedby="np-id-help" value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} />
+            <p id="np-id-help" className="text-muted-foreground text-sm">{t.productIdHelp}</p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="np-name">{t.name}</Label>
@@ -150,7 +152,7 @@ function NewProduct({ onCreated }: { onCreated: () => void }) {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="np-redirects">{t.redirectUris}</Label>
-            <Textarea id="np-redirects" rows={2} value={form.redirect_uris} onChange={(e) => setForm({ ...form, redirect_uris: e.target.value })} />
+            <Textarea id="np-redirects" required rows={2} placeholder="https://app.example.com/callback" value={form.redirect_uris} onChange={(e) => setForm({ ...form, redirect_uris: e.target.value })} />
             <p className="text-muted-foreground text-sm">{t.onePerLine}</p>
           </div>
           <div className="grid gap-2">

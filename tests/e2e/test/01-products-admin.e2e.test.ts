@@ -34,7 +34,9 @@ describe('§15-1 products, environments and product admins', () => {
     const list = await admin<{ products: Array<{ id: string }> }>(ownerToken, 'GET', '/products');
     expect(list.body.products.map((p) => p.id)).toEqual(expect.arrayContaining([a.productId, b.productId]));
     // Duplicate creation is a 409 conflict.
-    expect((await admin(ownerToken, 'POST', '/products', { product_id: a.productId, name: 'dup' })).status).toBe(409);
+    expect((await admin(ownerToken, 'POST', '/products', { product_id: a.productId, name: 'dup', redirect_uris: [a.redirectUri] })).status).toBe(409);
+    // A product needs a redirect URI (each environment is an OIDC client): 400, not a failed identity call.
+    expect((await admin(ownerToken, 'POST', '/products', { product_id: `${a.productId}_x`, name: 'no uri' })).status).toBe(400);
   });
 
   it('assigns a product admin to each product (accounts signed up normally, roles granted by the owner)', async () => {

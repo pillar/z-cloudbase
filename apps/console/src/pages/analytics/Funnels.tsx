@@ -166,7 +166,7 @@ export function Funnels(p: AnalyticsTabProps) {
       <ErrorBanner message={q.error} />
       {!applied ? (
         <EmptyState title={t.needSteps} />
-      ) : (
+      ) : q.error ? null : (
         <Section title={t.resultTitle} description={result ? t.resultDescription(result.from, result.to) : undefined}>
           <Loading loading={q.loading} rows={applied.steps.split(',').length} />
           {!q.loading && result && first === 0 && <EmptyState title={t.noActors} />}

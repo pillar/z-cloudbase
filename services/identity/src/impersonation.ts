@@ -6,19 +6,16 @@ import { ApiError, IMPERSONATION_MAX_CODE_ATTEMPTS, IMPERSONATION_MAX_S } from '
 import type { RequestIdVars } from '@z-cloudbase/security';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { html } from 'hono/html';
-import type { HtmlEscapedString } from 'hono/utils/html';
 import { writeAudit } from './audit.ts';
 import { AUTH_BASE_PATH } from './auth.ts';
 import { getAuth } from './instance.ts';
-import { platformName } from './platform.ts';
+import { notice, page, tr } from './layout.ts';
+import { engineMessage } from './messages.ts';
 
 type ImpEnv = { Bindings: Env; Variables: RequestIdVars };
 type C = Context<ImpEnv>;
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
-
-const page = (env: Env, title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) =>
-  html`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · ${platformName(env)}</title></head><body><main><h1>${title}</h1>${body}</main></body></html>`;
 
 /** Same-origin check for this module's forms (the UI's own check lives in ui.ts). */
 function sameOrigin(c: C): boolean {
@@ -35,7 +32,7 @@ async function engine(c: C, path: string, body: Record<string, unknown>) {
   }
   const res = await getAuth(c.env).handler(new Request(`${c.env.ISSUER}${AUTH_BASE_PATH}${path}`, { method: 'POST', headers, body: JSON.stringify(body) }));
   for (const cookie of res.headers.getSetCookie()) c.header('set-cookie', cookie, { append: true });
-  return { ok: res.ok, data: await res.json<{ message?: string } | null>().catch(() => null) };
+  return { ok: res.ok, data: await res.json<{ code?: string; message?: string } | null>().catch(() => null) };
 }
 
 /** Server-side engine endpoint call (SERVER_ONLY endpoints); Set-Cookie is passed on. */
@@ -62,21 +59,25 @@ async function loadPending(c: C, id: string, actorId: string) {
   ).bind(id, actorId, Date.now()).first<Pending & { email: string; isAnonymous: number | null }>();
 }
 
-const confirmPage = (c: C, p: Pending & { email: string; isAnonymous: number | null }, mfa: boolean, message?: string) =>
-  page(
-    c.env,
-    'Start a support session',
-    html`${message ? html`<p role="alert">${message}</p>` : ''}
-      <p>You are about to sign in as <strong>${p.isAnonymous ? `guest ${p.target_id}` : p.email}</strong> (${p.target_id}).</p>
-      <p>Reason: ${p.reason}</p>
-      <p>The session lasts ${IMPERSONATION_MAX_S / 60} minutes and is recorded in the audit log. Products see that the
-        tokens were issued to you on behalf of this user. Account settings and the console are not available during it.</p>
+const confirmPage = (c: C, p: Pending & { email: string; isAnonymous: number | null }, mfa: boolean, message?: string) => {
+  const t = tr(c);
+  return page(
+    t.impStartTitle,
+    html`${notice(message)}
+      <p>${t.impAbout(p.isAnonymous ? t.impGuest(p.target_id) : p.email, p.target_id)}</p>
+      <p>${t.impReason(p.reason)}</p>
+      <p class="muted">${t.impTerms(IMPERSONATION_MAX_S / 60)}</p>
       ${mfa
         ? html`<form method="post" action="/impersonation/${p.id}/start">
-            <label>Code from your authenticator app <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" required></label>
-            <button>Start support session</button></form>`
-        : html`<p>Support sessions require two-factor authentication. <a href="/two-factor/setup">Set it up</a> first.</p>`}`,
+            <label>${t.impCode} <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" required></label>
+            <button>${t.impStart}</button></form>`
+        : html`<p>${t.impNeeds2fa} <a href="/two-factor/setup">${t.impSetup2fa}</a></p>`}`,
+    { here: `/impersonation/${p.id}` },
   );
+};
+
+/** The request is unknown, expired, used or cancelled: the same page for every case. */
+const endedPage = (c: C, message: string) => page(tr(c).impTitle, html`<p role="alert">${message}</p>`, { here: '/account' });
 
 /**
  * Count a wrong code on a pending request; the attempt that reaches IMPERSONATION_MAX_CODE_ATTEMPTS cancels
@@ -107,7 +108,7 @@ impersonation.get('/impersonation/:id', async (c) => {
   const session = await getAuth(c.env).api.getSession({ headers: c.req.raw.headers });
   if (!session) return c.redirect('/login', 302);
   const p = await loadPending(c, c.req.param('id'), session.user.id);
-  if (!p) return c.html(page(c.env, 'Support session', html`<p>This request is unknown, expired or already used. Start a new one in the console.</p>`), 404);
+  if (!p) return c.html(endedPage(c, tr(c).impUnknown), 404);
   c.header('cache-control', 'no-store');
   return c.html(confirmPage(c, p, Boolean((session.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled)));
 });
@@ -117,7 +118,7 @@ impersonation.post('/impersonation/:id/start', async (c) => {
   const session = await getAuth(c.env).api.getSession({ headers: c.req.raw.headers });
   if (!session) return c.redirect('/login', 302);
   const p = await loadPending(c, c.req.param('id'), session.user.id);
-  if (!p) return c.html(page(c.env, 'Support session', html`<p>This request is unknown, expired or already used.</p>`), 404);
+  if (!p) return c.html(endedPage(c, tr(c).impUnknown), 404);
   const mfa = Boolean((session.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled);
   const form = await c.req.parseBody();
   const code = typeof form.code === 'string' ? form.code.trim() : '';
@@ -125,15 +126,15 @@ impersonation.post('/impersonation/:id/start', async (c) => {
   const verified = /^\d{6}$/.test(code) ? await engine(c, '/two-factor/verify-totp', { code }) : { ok: false, data: null };
   if (!verified.ok) {
     if (await countFailedCode(c, p)) {
-      return c.html(page(c.env, 'Support session', html`<p role="alert">Too many wrong codes: this request was cancelled. Start a new one in the console.</p>`), 401);
+      return c.html(endedPage(c, tr(c).impTooMany), 401);
     }
-    return c.html(confirmPage(c, p, mfa, verified.data?.message ?? 'Invalid code'), 401);
+    return c.html(confirmPage(c, p, mfa, engineMessage(tr(c), verified.data, tr(c).invalidCode)), 401);
   }
   // The step-up may have rotated cookies; the engine reads the request's own cookie, which is unchanged.
   try {
     await serverCall(c, 'startImpersonation', { id: p.id });
   } catch (e) {
-    const message = (e as { body?: { message?: string } })?.body?.message ?? (e as Error).message;
+    const message = engineMessage(tr(c), (e as { body?: { code?: string; message?: string } })?.body, (e as Error).message);
     return c.html(confirmPage(c, p, mfa, message), 403);
   }
   return c.redirect('/account', 302);
@@ -152,11 +153,12 @@ impersonation.post('/impersonation/stop', async (c) => {
 /** Identity pages a browser may still post to during an impersonation (everything else is refused). */
 const ALLOWED_POSTS: ReadonlySet<string> = new Set(['/impersonation/stop', '/consent']);
 
-function banner(target: string, actor: string, endsAt: number): string {
+function banner(c: C, target: string, actor: string, endsAt: number): string {
+  const t = tr(c);
   const ends = new Date(endsAt).toISOString().slice(11, 16);
-  return `<div role="status" data-impersonation-banner style="background:#7c2d12;color:#fff;padding:8px 12px;font-family:system-ui,sans-serif">`
-    + `Support session: signed in as <strong>${escape(target)}</strong> on behalf of ${escape(actor)}, ends at ${ends} UTC. `
-    + `<form method="post" action="/impersonation/stop" style="display:inline"><button>End support session</button></form></div>`;
+  return `<div role="status" data-impersonation-banner style="background:#7c2d12;color:#fff;padding:.6rem .75rem;margin-bottom:1rem;border-radius:.375rem;font-family:system-ui,sans-serif">`
+    + `${escape(t.impBanner(target, actor, ends))} `
+    + `<form method="post" action="/impersonation/stop" style="display:inline;margin:0"><button style="background:#fff;color:#7c2d12;margin-top:.4rem">${escape(t.impStop)}</button></form></div>`;
 }
 
 /**
@@ -180,8 +182,8 @@ export function impersonationGuard(): MiddlewareHandler<ImpEnv> {
     await next();
     if (!(c.res.headers.get('content-type') ?? '').includes('text/html')) return;
     const actor = await c.env.DB.prepare('SELECT email FROM "user" WHERE id = ?').bind(actorId).first<{ email: string }>();
-    const target = (session.user as { isAnonymous?: boolean | null }).isAnonymous ? `guest ${session.user.id}` : session.user.email;
-    const markup = banner(target, actor?.email ?? actorId, new Date(session.session.expiresAt).getTime());
+    const target = (session.user as { isAnonymous?: boolean | null }).isAnonymous ? tr(c).impGuest(session.user.id) : session.user.email;
+    const markup = banner(c, target, actor?.email ?? actorId, new Date(session.session.expiresAt).getTime());
     c.res = new HTMLRewriter().on('body', { element: (el) => void el.prepend(markup, { html: true }) }).transform(c.res);
   };
 }

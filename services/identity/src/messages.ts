@@ -1,5 +1,5 @@
 // Texts of the identity pages (PRD §21.4). `en` must have exactly the keys of `zh` (compiler-checked).
-// Engine error messages are shown as the engine returns them.
+// Engine errors with a known code (`err_<CODE>`) are shown translated; others as the engine returns them.
 import { defineMessages } from './i18n.ts';
 
 export const uiMessages = defineMessages({
@@ -17,6 +17,7 @@ export const uiMessages = defineMessages({
     passkeySignIn: '使用 Passkey 登录',
     passkeyFailed: 'Passkey 操作失败',
     magicLinkButton: '通过邮件发送登录链接',
+    magicLinkEmail: '用邮件链接登录（无需密码）',
     magicLinkSent: '如果该邮箱可以登录，我们已发送一个登录链接，5 分钟内有效。',
     magicLinkInvalid: '登录链接无效或已过期，请重新申请。',
     accountBanned: '该账号已被封禁，无法登录。',
@@ -51,7 +52,7 @@ export const uiMessages = defineMessages({
     invalidCode: '验证码无效',
     orUsePasskey: '也可以使用 Passkey 完成验证：',
     setupTitle: '设置两步验证',
-    setupIntro: '控制台要求使用认证器 App（TOTP）。请先确认密码。',
+    setupIntro: '两步验证使用认证器 App（TOTP）生成的验证码。请先确认密码。',
     continue: '继续',
     setupFailed: '无法开始设置两步验证',
     setupKey: '把这个密钥添加到认证器 App，然后输入它显示的验证码。',
@@ -104,6 +105,62 @@ export const uiMessages = defineMessages({
     linkingFailed: '绑定失败',
     back: '返回',
     guestUnavailable: '暂时无法以游客身份进入，请稍后再试',
+    signOut: '退出登录',
+    status_active: '正常',
+    status_suspended: '已暂停',
+    status_revoked: '已撤销',
+    status_pending: '等待处理',
+    status_processing: '处理中',
+    status_completed: '已完成',
+    status_cancelled: '已撤回',
+    status_failed: '失败',
+    // Engine error codes (Better Auth and this platform's own); unknown codes show the engine's message.
+    err_INVALID_EMAIL_OR_PASSWORD: '邮箱或密码不正确',
+    err_INVALID_PASSWORD: '密码不正确',
+    err_INVALID_EMAIL: '邮箱格式不正确',
+    err_EMAIL_NOT_VERIFIED: '邮箱尚未验证。请先打开验证邮件中的链接。',
+    err_PASSWORD_TOO_SHORT: '密码太短（至少 8 个字符）',
+    err_PASSWORD_TOO_LONG: '密码太长',
+    err_INVALID_TOKEN: '链接无效或已过期',
+    err_INVALID_CODE: '验证码无效',
+    err_INVALID_BACKUP_CODE: '备用码无效',
+    err_INVALID_TWO_FACTOR_COOKIE: '验证已超时，请重新登录',
+    err_TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: '尝试次数过多，请重新登录',
+    err_ACCOUNT_TEMPORARILY_LOCKED: '验证失败次数过多，账号暂时锁定，请稍后再试',
+    err_SESSION_EXPIRED: '需要重新登录才能执行这个操作',
+    err_SECOND_FACTOR_REQUIRED: '请先完成两步验证（在两步验证页输入认证器验证码，或用 Passkey 登录），然后在 5 分钟内添加 Passkey。',
+    err_ANONYMOUS_PASSKEY: '游客账号不能添加 Passkey，请先绑定邮箱或第三方账号。',
+    err_USER_VERIFICATION_REQUIRED: 'Passkey 必须验证你的身份（生物识别或 PIN）',
+    err_CHALLENGE_NOT_FOUND: 'Passkey 请求已过期，请重试',
+    err_PASSKEY_NOT_FOUND: '找不到这个 Passkey',
+    err_AUTHENTICATION_FAILED: 'Passkey 验证失败',
+    err_FAILED_TO_VERIFY_REGISTRATION: 'Passkey 注册校验失败',
+    err_PREVIOUSLY_REGISTERED: '这个 Passkey 已经添加过',
+    err_NotAllowedError: '操作已取消或超时',
+    accountBannedUntil: (until: string) => `该账号已被封禁至 ${until} UTC，期间无法登录。`,
+    errorTitle: '出错了',
+    error_rate_limited: '尝试次数过多，请 1 分钟后再试。',
+    error_impersonation: '支持会话期间不能执行这个操作。请先结束支持会话。',
+    error_not_found: '找不到这个页面或资源。',
+    error_forbidden: '没有权限执行这个操作。',
+    error_invalid_request: '请求无效或已过期。',
+    error_generic: '请求没有完成，请稍后再试。',
+    errorRequestId: (id: string) => `请求 ID：${id}`,
+    backToAccount: '返回账号页',
+    impStartTitle: '开始支持会话',
+    impTitle: '支持会话',
+    impAbout: (who: string, id: string) => `你将以 ${who}（${id}）的身份登录。`,
+    impGuest: (id: string) => `游客 ${id}`,
+    impReason: (reason: string) => `原因：${reason}`,
+    impTerms: (min: number) => `会话最长 ${min} 分钟，全程记入审计日志。产品能看出这些令牌是你代该用户获取的。会话期间无法使用账号设置和控制台。`,
+    impCode: '认证器 App 中的 6 位验证码',
+    impStart: '开始支持会话',
+    impNeeds2fa: '支持会话要求开启两步验证。',
+    impSetup2fa: '先去设置',
+    impUnknown: '这个请求不存在、已过期或已使用。请在控制台重新发起。',
+    impTooMany: '验证码错误次数过多，这个请求已取消。请在控制台重新发起。',
+    impBanner: (target: string, actor: string, ends: string) => `支持会话：${actor} 正在以 ${target} 的身份登录，${ends} UTC 结束。`,
+    impStop: '结束支持会话',
   },
   en: {
     languageName: 'English',
@@ -119,6 +176,7 @@ export const uiMessages = defineMessages({
     passkeySignIn: 'Sign in with a passkey',
     passkeyFailed: 'Passkey failed',
     magicLinkButton: 'Email me a sign-in link',
+    magicLinkEmail: 'Sign in with an email link (no password)',
     magicLinkSent: 'If this address can sign in, we sent a sign-in link. It expires in 5 minutes.',
     magicLinkInvalid: 'This sign-in link is invalid or expired. Ask for a new one.',
     accountBanned: 'This account has been banned and cannot sign in.',
@@ -153,7 +211,7 @@ export const uiMessages = defineMessages({
     invalidCode: 'Invalid code',
     orUsePasskey: 'You can also verify with a passkey:',
     setupTitle: 'Set up two-factor authentication',
-    setupIntro: 'The console requires an authenticator app (TOTP). Confirm your password to start.',
+    setupIntro: 'Two-factor authentication uses codes from an authenticator app (TOTP). Confirm your password to start.',
     continue: 'Continue',
     setupFailed: 'Two-factor setup could not be started',
     setupKey: 'Add this key to your authenticator app, then enter the code it shows.',
@@ -206,7 +264,95 @@ export const uiMessages = defineMessages({
     linkingFailed: 'Linking failed',
     back: 'Back',
     guestUnavailable: 'Guest sign-in is not available, try again later',
+    signOut: 'Sign out',
+    status_active: 'Active',
+    status_suspended: 'Suspended',
+    status_revoked: 'Revoked',
+    status_pending: 'Pending',
+    status_processing: 'Processing',
+    status_completed: 'Completed',
+    status_cancelled: 'Cancelled',
+    status_failed: 'Failed',
+    err_INVALID_EMAIL_OR_PASSWORD: 'Invalid email or password',
+    err_INVALID_PASSWORD: 'Invalid password',
+    err_INVALID_EMAIL: 'Invalid email address',
+    err_EMAIL_NOT_VERIFIED: 'Your email address is not verified yet. Open the link in the verification email first.',
+    err_PASSWORD_TOO_SHORT: 'Password too short (at least 8 characters)',
+    err_PASSWORD_TOO_LONG: 'Password too long',
+    err_INVALID_TOKEN: 'This link is invalid or expired',
+    err_INVALID_CODE: 'Invalid code',
+    err_INVALID_BACKUP_CODE: 'Invalid backup code',
+    err_INVALID_TWO_FACTOR_COOKIE: 'The verification timed out. Sign in again.',
+    err_TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE: 'Too many attempts. Sign in again.',
+    err_ACCOUNT_TEMPORARILY_LOCKED: 'Too many failed verification attempts. Your account is temporarily locked; try again later.',
+    err_SESSION_EXPIRED: 'Sign in again to do this',
+    err_SECOND_FACTOR_REQUIRED: 'Confirm your second factor first (an authenticator code on the two-factor page, or sign in with a passkey), then add the passkey within 5 minutes.',
+    err_ANONYMOUS_PASSKEY: 'Guests cannot add a passkey. Add an email or a provider first.',
+    err_USER_VERIFICATION_REQUIRED: 'The passkey must verify you (biometrics or PIN)',
+    err_CHALLENGE_NOT_FOUND: 'The passkey request expired. Try again.',
+    err_PASSKEY_NOT_FOUND: 'Passkey not found',
+    err_AUTHENTICATION_FAILED: 'Passkey verification failed',
+    err_FAILED_TO_VERIFY_REGISTRATION: 'The passkey registration could not be verified',
+    err_PREVIOUSLY_REGISTERED: 'This passkey is already registered',
+    err_NotAllowedError: 'Cancelled or timed out',
+    accountBannedUntil: (until: string) => `This account has been banned until ${until} UTC and cannot sign in.`,
+    errorTitle: 'Something went wrong',
+    error_rate_limited: 'Too many attempts. Try again in a minute.',
+    error_impersonation: 'Not available during a support session. End the support session first.',
+    error_not_found: 'This page or resource was not found.',
+    error_forbidden: 'You are not allowed to do this.',
+    error_invalid_request: 'The request is invalid or expired.',
+    error_generic: 'The request could not be completed. Try again later.',
+    errorRequestId: (id: string) => `Request ID: ${id}`,
+    backToAccount: 'Back to your account',
+    impStartTitle: 'Start a support session',
+    impTitle: 'Support session',
+    impAbout: (who: string, id: string) => `You are about to sign in as ${who} (${id}).`,
+    impGuest: (id: string) => `guest ${id}`,
+    impReason: (reason: string) => `Reason: ${reason}`,
+    impTerms: (min: number) => `The session lasts ${min} minutes and is recorded in the audit log. Products see that the tokens were issued to you on behalf of this user. Account settings and the console are not available during it.`,
+    impCode: 'Code from your authenticator app',
+    impStart: 'Start support session',
+    impNeeds2fa: 'Support sessions require two-factor authentication.',
+    impSetup2fa: 'Set it up',
+    impUnknown: 'This request is unknown, expired or already used. Start a new one in the console.',
+    impTooMany: 'Too many wrong codes: this request was cancelled. Start a new one in the console.',
+    impBanner: (target: string, actor: string, ends: string) => `Support session: ${actor} is signed in as ${target}, ends at ${ends} UTC.`,
+    impStop: 'End support session',
   },
 });
 
 export type UiMessages = (typeof uiMessages)['en'];
+
+const ERR_PREFIX = 'err_';
+
+/** The localized text of an engine error code, if there is one. */
+export function engineCodeMessage(t: UiMessages, code: string | undefined): string | undefined {
+  const v = code ? (t as unknown as Record<string, unknown>)[`${ERR_PREFIX}${code}`] : undefined;
+  return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * Text for an engine error answer: the translation of its code, a ban with its end date, else the
+ * engine's own message, else `fallback`.
+ */
+export function engineMessage(t: UiMessages, data: { code?: string; message?: string } | null | undefined, fallback: string): string {
+  if (data?.code === 'BANNED_USER') {
+    const until = /until (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC/.exec(data.message ?? '')?.[1];
+    return until ? t.accountBannedUntil(until) : t.accountBanned;
+  }
+  return engineCodeMessage(t, data?.code) ?? data?.message ?? fallback;
+}
+
+/** Codes → texts for the passkey browser script (`data-messages` on its error element). */
+export function passkeyErrorMessages(t: UiMessages): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(t)) if (k.startsWith(ERR_PREFIX) && typeof v === 'string') out[k.slice(ERR_PREFIX.length)] = v;
+  return out;
+}
+
+/** Label of a membership or account-request status (unknown values unchanged). */
+export function statusLabel(t: UiMessages, status: string): string {
+  const v = (t as unknown as Record<string, unknown>)[`status_${status}`];
+  return typeof v === 'string' ? v : status;
+}

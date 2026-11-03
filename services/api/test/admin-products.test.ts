@@ -50,9 +50,15 @@ describe('POST /products', () => {
   });
 
   it('rejects the reserved console id, duplicates and malformed bodies', async () => {
-    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: 'platform_console', name: 'x' }))).toBe('validation_failed');
-    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: 'Bad-Id', name: 'x' }))).toBe('validation_failed');
-    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: w.a, name: 'dup' }))).toBe('conflict');
+    const cb = { redirect_uris: ['https://x.example/cb'] };
+    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: 'platform_console', name: 'x', ...cb }))).toBe('validation_failed');
+    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: 'Bad-Id', name: 'x', ...cb }))).toBe('validation_failed');
+    expect(await errorCode(await api(w.tok.owner, 'POST', '/products', { product_id: w.a, name: 'dup', ...cb }))).toBe('conflict');
+    // Every environment is an OIDC client, which needs a redirect URI: a 400, not a failed identity call (500).
+    for (const body of [{ product_id: 'prd_nocb', name: 'x' }, { product_id: 'prd_nocb', name: 'x', redirect_uris: [] }]) {
+      expect(await errorCode(await api(w.tok.owner, 'POST', '/products', body))).toBe('validation_failed');
+    }
+    expect(rpc.upsertProductClient).not.toHaveBeenCalled();
     const notJson = await rawRequest('/products', { method: 'POST', headers: { Authorization: `Bearer ${w.tok.owner}` }, body: '{' });
     expect(await errorCode(notJson)).toBe('invalid_request');
     expect(await dbValue('SELECT 1 AS x FROM products WHERE id = ?', 'platform_console')).toBeNull();
@@ -60,7 +66,7 @@ describe('POST /products', () => {
 
   it('creates nothing when the identity worker fails', async () => {
     rpc.upsertProductClient.mockRejectedValueOnce(new Error('identity down'));
-    expect((await api(w.tok.owner, 'POST', '/products', { product_id: 'prd_fail', name: 'x' })).status).toBe(500);
+    expect((await api(w.tok.owner, 'POST', '/products', { product_id: 'prd_fail', name: 'x', redirect_uris: ['https://x.example/cb'] })).status).toBe(500);
     expect(await dbValue('SELECT 1 AS x FROM products WHERE id = ?', 'prd_fail')).toBeNull();
   });
 
@@ -114,6 +120,7 @@ describe('PATCH /products/:id', () => {
   it('validates input', async () => {
     expect(await errorCode(await api(w.tok.adminA, 'PATCH', `/products/${w.a}`, {}))).toBe('validation_failed');
     expect(await errorCode(await api(w.tok.adminA, 'PATCH', `/products/${w.a}`, { redirect_uris: ['not a url'] }))).toBe('validation_failed');
+    expect(await errorCode(await api(w.tok.adminA, 'PATCH', `/products/${w.a}`, { redirect_uris: [] }))).toBe('validation_failed');
     expect(await errorCode(await api(w.tok.owner, 'PATCH', '/products/prd_missing', { name: 'x' }))).toBe('not_found');
   });
 

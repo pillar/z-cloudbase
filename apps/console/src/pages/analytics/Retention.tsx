@@ -47,6 +47,7 @@ const messages = defineMessages({
 });
 
 type Granularity = 'day' | 'week';
+const DAY_MS = 24 * 3600 * 1000;
 const LIMITS: Record<Granularity, { def: number; max: number }> = { day: { def: 7, max: 31 }, week: { def: 4, max: 13 } };
 
 interface RetentionQuery {
@@ -146,7 +147,9 @@ export function Retention(p: AnalyticsTabProps) {
                     <TableCell className="font-mono text-xs">{c.cohort}</TableCell>
                     <TableCell className="text-right tabular-nums">{f.number(c.size)}</TableCell>
                     {Array.from({ length: r.periods }, (_, k) => {
-                      const n = c.retained[k];
+                      // A period that has not started yet has no data (the API reports 0): show "–", not 0%.
+                      const future = Date.parse(`${c.cohort}T00:00:00Z`) + k * (r.granularity === 'week' ? 7 : 1) * DAY_MS > Date.now();
+                      const n = future ? undefined : c.retained[k];
                       const ratio = n !== undefined && c.size > 0 ? n / c.size : undefined;
                       return (
                         <TableCell key={k} className="relative min-w-16 text-center" title={n !== undefined ? f.number(n) : undefined}>
