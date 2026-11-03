@@ -11,7 +11,8 @@ import { defineMessages, useT } from './i18n.tsx';
 import { Invitations } from './pages/Invitations.tsx';
 import { ProductDetail } from './pages/ProductDetail.tsx';
 import { ProductList } from './pages/ProductList.tsx';
-import { Shell, type PlatformPage, type Route } from './shell.tsx';
+import { parseHash, type Route } from './route.ts';
+import { Shell } from './shell.tsx';
 import type { Me } from './types.ts';
 import { AppContext, ErrorBanner, errorText } from './ui.tsx';
 
@@ -38,7 +39,6 @@ const messages = defineMessages({
   },
 });
 
-/** `#/` → products, `#/p/<id>[/<section>]` → product, `#/<platform page>` (e.g. `#/invitations`). */
 function useHashRoute(): Route {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -46,10 +46,7 @@ function useHashRoute(): Route {
     addEventListener('hashchange', on);
     return () => removeEventListener('hashchange', on);
   }, []);
-  const m = /^#\/p\/([^/]+)(?:\/([^/]+))?/.exec(hash);
-  if (m) return { productId: decodeURIComponent(m[1]!), ...(m[2] ? { section: m[2] } : {}) };
-  const platform = /^#\/(invitations)$/.exec(hash);
-  return platform ? { platformPage: platform[1] as PlatformPage } : {};
+  return parseHash(hash);
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -128,7 +125,7 @@ export function App() {
     <AppContext.Provider value={{ api, me: state.me }}>
       <Shell route={route} onSignOut={signOut}>
         {route.productId ? (
-          <ProductDetail productId={route.productId} tab={route.section ?? 'settings'} />
+          <ProductDetail key={route.productId} productId={route.productId} tab={route.section ?? 'settings'} {...(route.env ? { env: route.env } : {})} />
         ) : route.platformPage === 'invitations' ? (
           <Invitations />
         ) : (

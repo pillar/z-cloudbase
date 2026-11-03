@@ -20,6 +20,7 @@ import {
 import { defineMessages, useLocale, useT, type Locale } from './i18n.tsx';
 import { sectionMessages, visibleSections } from './pages/ProductDetail.tsx';
 import { useTheme, type Theme } from './theme.tsx';
+import type { Route } from './route.ts';
 import type { ProductSummary } from './types.ts';
 import { isOwner, useApp, useLoad } from './ui.tsx';
 
@@ -64,14 +65,6 @@ export const shellMessages = defineMessages({
   },
 });
 
-/** Platform-level pages outside any product (`#/<page>`). */
-export type PlatformPage = 'invitations';
-
-export interface Route {
-  productId?: string;
-  section?: string;
-  platformPage?: PlatformPage;
-}
 
 export function Shell({ route, onSignOut, children }: { route: Route; onSignOut: () => void; children: ReactNode }) {
   return (

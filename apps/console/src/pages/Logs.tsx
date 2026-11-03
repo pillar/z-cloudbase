@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
-import { LOG_LEVELS, type Environment } from '@z-cloudbase/contracts';
+import { LOG_LEVELS } from '@z-cloudbase/contracts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils';
 import { defineMessages, useT } from '../i18n.tsx';
 import { CopyText, EmptyState, EnvSelect, Field, ErrorBanner, Loading, Section, common, useAction, useApp } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { LogRecord } from '../types.ts';
 import type { TabProps } from './ProductDetail.tsx';
 
@@ -64,7 +65,7 @@ export function Logs({ product }: TabProps) {
   const { api } = useApp();
   const t = useT(messages);
   const c = useT(common);
-  const [env, setEnv] = useState<Environment>('dev');
+  const { env, setEnv, envs } = useProductEnv();
   const [requestId, setRequestId] = useState('');
   const [level, setLevel] = useState('');
   const [from, setFrom] = useState('');
@@ -107,7 +108,7 @@ export function Logs({ product }: TabProps) {
   return (
     <>
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        <EnvSelect labelled value={env} onChange={setEnv} />
+        <EnvSelect labelled value={env} onChange={setEnv} envs={envs} />
         <Field label={t.requestId} htmlFor="log-request">
           <Input id="log-request" placeholder="req_…" className="w-48 font-mono" value={requestId} onChange={(e) => setRequestId(e.target.value)} />
         </Field>

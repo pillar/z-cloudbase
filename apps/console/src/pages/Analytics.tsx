@@ -1,12 +1,12 @@
 import { Suspense, lazy, useState, type ComponentType, type ReactNode } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
-import type { Environment } from '@z-cloudbase/contracts';
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
 import { EmptyState, EnvSelect, Field, ErrorBanner, Loading, Section, useLoad } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { AnalyticsSummary } from '../types.ts';
 import type { TabProps } from './ProductDetail.tsx';
 import { SourceNote, type AnalyticsTabProps } from './analytics/shared.tsx';
@@ -90,7 +90,7 @@ type TabId = (typeof TABS)[number];
 
 export function Analytics({ product }: TabProps) {
   const t = useT(messages);
-  const [env, setEnv] = useState<Environment>('prod');
+  const { env, setEnv, envs } = useProductEnv();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [tab, setTab] = useState<TabId>('overview');
@@ -113,7 +113,7 @@ export function Analytics({ product }: TabProps) {
   return (
     <>
       <div className="flex flex-wrap items-end gap-3">
-        <EnvSelect labelled value={env} onChange={setEnv} />
+        <EnvSelect labelled value={env} onChange={setEnv} envs={envs} />
         <Field label={t.from} htmlFor="an-from">
           <Input id="an-from" type="date" className="w-40" value={from} onChange={(e) => setFrom(e.target.value)} />
         </Field>

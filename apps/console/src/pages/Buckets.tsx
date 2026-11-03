@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { ENVIRONMENTS, type Environment } from '@z-cloudbase/contracts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -12,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { defineMessages, useFormat, useT } from '../i18n.tsx';
 import { EmptyState, EnvSelect, ErrorBanner, Loading, Section, common, hasRole, useAction, useApp, useLoad } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { Bucket, EventSchema } from '../types.ts';
 import { EXAMPLE_EVENT_SCHEMA, buildEventSchemaRequest } from '../envSettings.ts';
 import type { TabProps } from './ProductDetail.tsx';
@@ -81,7 +81,7 @@ export function Buckets({ product }: TabProps) {
   const t = useT(messages);
   const c = useT(common);
   const f = useFormat();
-  const [env, setEnv] = useState<Environment>(ENVIRONMENTS[0]);
+  const { env, setEnv, envs } = useProductEnv();
   const base = `/products/${product.id}/environments/${env}`;
   const buckets = useLoad((a) => a.get<{ buckets: Bucket[] }>(`${base}/buckets`), base);
   const schemas = useLoad((a) => a.get<{ event_schemas: EventSchema[] }>(`${base}/event-schemas`), base);
@@ -217,7 +217,7 @@ export function Buckets({ product }: TabProps) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <EnvSelect labelled value={env} onChange={setEnv} />
+        <EnvSelect labelled value={env} onChange={setEnv} envs={envs} />
       </div>
 
       <Section title={t.bucketsTitle} description={t.bucketsDescription} action={bucketAction || undefined}>

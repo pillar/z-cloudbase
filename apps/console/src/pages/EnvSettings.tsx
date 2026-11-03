@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { ENVIRONMENTS, UNKNOWN_EVENT_POLICIES, type Environment } from '@z-cloudbase/contracts';
+import { UNKNOWN_EVENT_POLICIES } from '@z-cloudbase/contracts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { defineMessages, useT } from '../i18n.tsx';
 import { EnvSelect, ErrorBanner, Section, common, hasRole, useAction, useApp } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import { buildEnvUpdate, formFromEnv, type EnvForm } from '../envSettings.ts';
 import type { TabProps } from './ProductDetail.tsx';
 
@@ -50,11 +51,11 @@ const messages = defineMessages({
 export function EnvSettings({ product, reload }: TabProps) {
   const { api, me } = useApp();
   const t = useT(messages);
-  const [env, setEnv] = useState<Environment>(ENVIRONMENTS[0]);
+  const { env, setEnv, envs } = useProductEnv();
   const current = product.environments.find((e) => e.env === env);
   // key resets the form when switching environment or after a save reloads the product
   return (
-    <Section title={t.title} description={t.description} action={<EnvSelect value={env} onChange={setEnv} />}>
+    <Section title={t.title} description={t.description} action={<EnvSelect value={env} onChange={setEnv} envs={envs} />}>
       {current && (
         <SettingsForm
           key={`${env}:${JSON.stringify(current)}`}

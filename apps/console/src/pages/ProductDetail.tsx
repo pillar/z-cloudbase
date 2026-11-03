@@ -2,6 +2,8 @@ import { Suspense, lazy, type ComponentType, type ReactNode } from 'react';
 import { BarChart3, Database, Gauge, History, KeyRound, ScrollText, Settings2, ShieldCheck, Users as UsersIcon, Webhook, type LucideIcon } from 'lucide-react';
 import { defineMessages, useT } from '../i18n.tsx';
 import { CopyText, ErrorBanner, Loading, StatusBadge, hasRole, useApp, useLoad } from '../ui.tsx';
+import type { Environment } from '@z-cloudbase/contracts';
+import { ProductEnvProvider } from '../productEnv.tsx';
 import type { Me, ProductDetail as Product } from '../types.ts';
 
 // Each section is its own chunk (recharts only loads with Analytics).
@@ -71,7 +73,8 @@ export const visibleSections = (me: Me, productId: string) => {
   return SECTIONS.filter((s) => !s.admin || admin);
 };
 
-export function ProductDetail({ productId, tab }: { productId: string; tab: string }) {
+/** `env`: environment named in the URL; the selection is shared by all sections (see productEnv.tsx). */
+export function ProductDetail({ productId, tab, env }: { productId: string; tab: string; env?: Environment }) {
   const { me } = useApp();
   const q = useLoad((a) => a.get<Product>(`/products/${encodeURIComponent(productId)}`), productId);
   const sections = visibleSections(me, productId);
@@ -88,9 +91,11 @@ export function ProductDetail({ productId, tab }: { productId: string; tab: stri
             <CopyText value={q.data.id} />
             <StatusBadge status={q.data.status} />
           </div>
-          <div key={active.id} className="space-y-6">
-            <Suspense fallback={<Loading loading rows={4} />}>{active.render({ product: q.data, reload: q.reload })}</Suspense>
-          </div>
+          <ProductEnvProvider productId={productId} section={active.id} envs={q.data.environments.map((e) => e.env)} {...(env ? { urlEnv: env } : {})}>
+            <div key={active.id} className="space-y-6">
+              <Suspense fallback={<Loading loading rows={4} />}>{active.render({ product: q.data, reload: q.reload })}</Suspense>
+            </div>
+          </ProductEnvProvider>
         </>
       )}
     </div>

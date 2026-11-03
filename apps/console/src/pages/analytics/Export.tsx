@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { defineMessages, useT } from '../../i18n.tsx';
-import { EnvBadge, ErrorBanner, Field, Section, useAction, useApp } from '../../ui.tsx';
+import { EnvBadge, ErrorBanner, Field, Section, hasRole, useAction, useApp } from '../../ui.tsx';
 import { analyticsPath, useAnalyticsSettings, utcDay, type AnalyticsTabProps } from './shared.tsx';
 
 const messages = defineMessages({
@@ -28,6 +28,7 @@ const messages = defineMessages({
     note2: '已删除账号（或退出产品）的用户事件不会出现在导出中；只有匿名 ID 的事件无法归属到账号，不在删除范围内。',
     note3: (days?: number) => (days ? `归档保留 ${days} 天，更早的日期已被清理。` : '归档按部署配置的保留期清理。'),
     note4: '每次导出都写入审计日志（范围、格式、对象数）。开发者只能导出 dev / staging。',
+    notAllowed: '你的角色不能导出这个环境的原始事件：开发者只能导出 dev / staging，运维不能导出。',
   },
   en: {
     title: 'Export raw events',
@@ -47,6 +48,7 @@ const messages = defineMessages({
     note2: 'Events of deleted users (or users who left the product) are excluded. Events with only an anonymous id cannot be tied to an account and are not covered by deletion.',
     note3: (days?: number) => (days ? `The archive is kept ${days} days; older dates have been purged.` : 'The archive is purged after the deployment\'s retention period.'),
     note4: 'Every export is recorded in the audit log (range, format, object count). Developers can export dev / staging only.',
+    notAllowed: 'Your role cannot export raw events of this environment: developers can export dev / staging only, operators cannot export.',
   },
 });
 
@@ -54,8 +56,10 @@ type Format = 'ndjson' | 'csv';
 const DAY_MS = 86_400_000;
 
 export function Export(p: AnalyticsTabProps) {
-  const { api } = useApp();
+  const { api, me } = useApp();
   const t = useT(messages);
+  // Hint only (the server enforces RBAC): same rule as analytics:export.
+  const canExport = hasRole(me, p.product.id, 'product_admin') || (p.env !== 'prod' && hasRole(me, p.product.id, 'product_developer'));
   const settings = useAnalyticsSettings(p);
   const [from, setFrom] = useState(p.from || utcDay(-6));
   const [to, setTo] = useState(p.to || utcDay(1));
@@ -112,11 +116,12 @@ export function Export(p: AnalyticsTabProps) {
               </SelectContent>
             </Select>
           </Field>
-          <Button type="submit" disabled={action.busy}>
+          <Button type="submit" disabled={action.busy || !canExport}>
             {action.busy ? <Loader2 className="animate-spin" /> : <Download />}
             {action.busy ? t.downloading : t.download}
           </Button>
         </div>
+        {!canExport && <p className="text-muted-foreground text-sm">{t.notAllowed}</p>}
         <ErrorBanner message={formError ?? action.error} />
         <ul className="text-muted-foreground list-disc space-y-1 pl-5 text-sm">
           <li>{t.note1(EXPORT_MAX_DAYS)}</li>

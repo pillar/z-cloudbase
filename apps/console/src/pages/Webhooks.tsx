@@ -18,6 +18,7 @@ import type { CreatedWebhook, Webhook, WebhookAttempt, WebhookTestResult } from 
 import {
   CopyText, EmptyState, EnvSelect, ErrorBanner, Loading, OneTimeSecret, Section, StatusBadge, common, hasRole, useAction, useApp, useConfirm, useLoad,
 } from '../ui.tsx';
+import { useProductEnv } from '../productEnv.tsx';
 import type { TabProps } from './ProductDetail.tsx';
 
 const messages = defineMessages({
@@ -29,6 +30,7 @@ const messages = defineMessages({
     add: '添加端点',
     empty: '还没有 Webhook 端点',
     empty_hint: '添加一个端点，在用户加入、升级、删除或被封禁时收到通知。',
+    read_only_prod: '你可以查看这个环境的 Webhook 和投递记录；添加、修改或轮换密钥需要产品管理员（开发者可以管理 dev / staging）。',
     col_url: '地址',
     col_events: '事件',
     col_status: '状态',
@@ -100,6 +102,7 @@ const messages = defineMessages({
     add: 'Add endpoint',
     empty: 'No webhook endpoints yet',
     empty_hint: 'Add one to be notified when users join, upgrade, are deleted or banned.',
+    read_only_prod: 'You can view the webhooks of this environment and their deliveries; adding, changing or rotating secrets needs a product admin (developers can manage dev / staging).',
     col_url: 'URL',
     col_events: 'Events',
     col_status: 'Status',
@@ -351,8 +354,7 @@ export function Webhooks({ product }: TabProps) {
   const c = useT(common);
   const f = useFormat();
   const confirm = useConfirm();
-  const envs = product.environments.map((e) => e.env);
-  const [env, setEnv] = useState<Environment>(envs[0] ?? 'dev');
+  const { env, setEnv, envs } = useProductEnv();
   const base = `/products/${product.id}/environments/${env}/webhooks`;
   const list = useLoad((a) => a.get<{ webhooks: Webhook[] }>(base), base);
   const [secret, setSecret] = useState<{ title: string; value: string } | null>(null);
@@ -417,6 +419,7 @@ export function Webhooks({ product }: TabProps) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
         <EnvSelect labelled value={env} onChange={changeEnv} envs={envs} />
+        {!canWrite && <p className="text-muted-foreground pb-2 text-sm">{t.read_only_prod}</p>}
       </div>
 
       {secret && <OneTimeSecret title={secret.title} value={secret.value} onDone={() => setSecret(null)} />}
@@ -425,7 +428,7 @@ export function Webhooks({ product }: TabProps) {
         <div className="space-y-4">
           <ErrorBanner message={list.error ?? act.error} />
           <Loading loading={list.loading && !list.data} />
-          {list.data && list.data.webhooks.length === 0 && <EmptyState title={t.empty} description={t.empty_hint} action={addButton} />}
+          {list.data && list.data.webhooks.length === 0 && <EmptyState title={t.empty} {...(canWrite ? { description: t.empty_hint } : {})} action={addButton} />}
           {list.data && list.data.webhooks.length > 0 && (
             <div className="overflow-x-auto rounded-md border">
               <Table>
