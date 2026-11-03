@@ -58,5 +58,6 @@ export const langSwitch: MiddlewareHandler<{ Bindings: Env }> = async (c, next) 
   if (isLang(wanted)) {
     setCookie(c, LANG_COOKIE, wanted, { path: '/', maxAge: YEAR_S, sameSite: 'Lax', secure: true, httpOnly: true });
   }
-  return c.redirect(`${url.pathname}${url.search}`, 302);
+  // One leading slash: `//host/...` would make the relative Location an open redirect.
+  return c.redirect(`/${url.pathname.replace(/^[/\\]+/, '')}${url.search}`, 302);
 };

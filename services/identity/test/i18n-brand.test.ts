@@ -44,6 +44,14 @@ describe('language selection', () => {
     expect(jar.cookies.get('zcb_lang')).toBe('zh');
   });
 
+  it('the switch never redirects off the identity origin', async () => {
+    for (const path of ['//evil.example/x?lang=zh', '/\\evil.example/x?lang=en']) {
+      const res = await call(path);
+      expect(res.status).toBe(302);
+      expect(new URL(res.headers.get('location')!, env.ISSUER).origin).toBe(env.ISSUER);
+    }
+  });
+
   it('every page offers the switch to the other language, keeping the signed query', async () => {
     const page = await (await call('/login?client_id=a.prod&sig=abc')).text();
     expect(page).toContain('href="/login?client_id=a.prod&amp;sig=abc&amp;lang=zh"');
