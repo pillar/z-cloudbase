@@ -612,7 +612,7 @@ POC 只用一个 `platform_db`，按表前缀划分认证与元数据；事件�
 ### 19.4 Token、会话与 SSO 参数（初始值）
 
 - access token：JWT，非对称签名（以引擎支持为准，首选 EdDSA，次选 ES256），**15 分钟**；header 带 `kid`。
-- Claims：`iss`、`sub`（user_id）、`aud`（`urn:platform:{product_id}.{env}`；授予 `openid` 时引擎会额外附加 `{iss}/api/auth/oauth2/userinfo`，此外不允许出现其他成员）、`typ=at+jwt`、`exp`、`iat`、`jti`、`sid`（平台会话）、`pid`（product_id）、`env`、`anon`（boolean）、`scope`。不放邮箱等个人信息（需要时调用 `/userinfo`）。
+- Claims：`iss`、`sub`（user_id）、`aud`（`urn:platform:{product_id}.{env}`；授予 `openid` 时引擎会额外附加 `{iss}/api/auth/oauth2/userinfo`，此外不允许出现其他成员）、`typ=at+jwt`、`exp`、`iat`、`jti`、`sid`（平台会话）、`pid`（product_id）、`env`、`anon`（boolean）、`scope`；代登录期间另有 RFC 8693 `act`（`{ "sub": "<owner user_id>" }`，§21.5.2）。不放邮箱等个人信息（需要时调用 `/userinfo`）。
 - refresh token：opaque，**30 天滑动过期**，每次使用都轮换；旧 token 重放时撤销该用户在**同一 client** 下的全部 refresh token（引擎行为，比单个 family 更严格），并写安全审计事件；身份域会话不随之撤销，避免影响其他产品的 SSO（Phase 0 决定）。
 - 身份域会话：HttpOnly + Secure + `SameSite=Lax` Cookie，仅限身份域，**7 天**；敏感操作（绑定 Provider、改密码、删除账号）要求 **5 分钟内**完成过再认证。
 - 签名密钥轮换：新 `kid` 先发布到 JWKS，旧 key 至少保留 access token TTL + 时钟偏差（30 分钟）后再下线。
@@ -630,7 +630,7 @@ POC 只用一个 `platform_db`，按表前缀划分认证与元数据；事件�
 |---|---|---|
 | 400 | `invalid_request` / `validation_failed` | 参数或 Schema 错误，`details` 列出字段 |
 | 401 | `unauthenticated` / `token_expired` / `invalid_token` | 缺少 token、token 过期或验签失败 |
-| 403 | `forbidden` / `forbidden_product` / `product_disabled` / `membership_required` | 无权限、跨产品访问、产品已停用、受限产品无准入 |
+| 403 | `forbidden` / `forbidden_product` / `product_disabled` / `membership_required` / `user_banned` | 无权限、跨产品访问、产品已停用、受限产品无准入、用户已被平台封禁（§21.5.1） |
 | 404 | `not_found` | 资源不存在，或无权知道它是否存在（防枚举） |
 | 409 | `identity_conflict` / `idempotency_conflict` / `conflict` | 凭据已属于其他账号；相同 Idempotency-Key 但请求体不同；其他重复或状态冲突（如管理端重复创建产品、存储桶、事件 schema 或团队角色） |
 | 413 | `payload_too_large` | 超过 §19.6 的上限 |
@@ -782,13 +782,87 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 - 代登录（impersonation）：只用于排查问题，仅 owner 可用、不可代登录平台团队成员、有时限、全程审计，签发的 token 带标识让产品能识别。
 - 用户列表导出（产品级，受 RBAC 约束）。
 
-（待补充规格）
+**实现方式（认证引擎）**：不启用 Better Auth 的 admin 插件。该插件的接口按 `user.role` / `adminUserIds` 授权，会在 `team_members` 之外形成第二套管理员体系；它的代登录也无法表达本节的前置条件（TOTP、原因、目标限制、`act` 声明）。平台用一个自有引擎插件（`services/identity/src/user-admin.ts`）复用同样的引擎原语：用户字段 `banned` / `banReason` / `banExpires` 与会话字段 `impersonatedBy`（与 admin 插件同名，便于将来迁移）、会话创建钩子、`internalAdapter.createSession`、会话 Cookie 与签名 Cookie、OAuth Provider 的 claims 扩展点。
+
+**权限（§19.9 补充）**：新增 RBAC 动作 `users:ban`、`users:impersonate`，只有 `owner` 拥有；`operator` 只读排障，不能封禁或代登录。导出沿用 `users:read`（`owner`、本产品的 `product_admin`）。
+
+#### 21.5.1 封禁 / 解封
+
+| 项 | 规格 |
+|---|---|
+| 接口 | `POST /v1/admin/users/:user_id/ban` `{ reason, expires_at? }`；`DELETE /v1/admin/users/:user_id/ban`。只接受控制台 token，`users:ban` |
+| 参数 | `reason` 必填，1–500 字符（内部备注，不展示给被封禁用户，也不进 Webhook）；`expires_at` 可选，ISO 8601，必须晚于当前时间且不晚于 10 年后；缺省为永久 |
+| 目标限制 | 用户不存在或已删除（墓碑）：404 `not_found`。平台团队成员（`team_members` 任意角色）：409 `conflict`，须先移出团队；因此也不能封禁自己。已封禁的用户再次封禁：更新原因与到期时间（200） |
+| 生效 | 一次 D1 batch 写入封禁字段、审计 `user.ban` 与 Webhook outbox；随后撤销该用户全部身份域会话和全部产品 refresh token，结束针对该用户的进行中代登录 |
+| 拦截点 | ① 会话创建层（引擎 `session.create.before` 钩子）：任何登录方式（密码、社交、匿名升级后的登录、二次验证、以及后续的 passkey / magic link）都无法再创建会话，返回 403，code `BANNED_USER`，message 为“此账号已被封禁”（有到期时间时附上到期时间）；身份域登录页原样显示该消息。② 产品授权、授权码兑换、refresh：`productAccess` 拒绝（`access_denied` / `invalid_grant`，`user is banned`）。③ api 的用户 token 校验：已签发但未过期的 access token（最长 15 分钟）返回 403 `user_banned` |
+| 解封 | 幂等，返回 200；只有确实解除时才写审计 `user.unban` 与 Webhook。解封不恢复已撤销的会话，用户重新登录 |
+| 到期 | 每次检查时按 `banExpires` 判断；consumer 的 15 分钟 cron 清除已到期的封禁，写审计 `user.unban`（actor 为 system，`metadata.reason = "expired"`）与 Webhook `user.unbanned` |
+| 其他 | 已封禁用户不能被加入团队（409 `conflict`）。用户查询接口（`GET /v1/admin/users`）返回 `ban: { banned, expires_at, reason }`，其中 `reason` 只对拥有 `users:ban` 的调用方返回 |
+
+#### 21.5.2 代登录（impersonation）
+
+| 项 | 规格 |
+|---|---|
+| 发起 | 控制台调用 `POST /v1/admin/users/:user_id/impersonations` `{ reason }`（`users:impersonate`，reason 10–500 字符）。服务端检查：调用者已启用 TOTP（否则 403 `forbidden`，`details.reason = "mfa_required"`）；目标存在且未删除（否则 404）、不是平台团队成员、未被封禁、不是自己（否则 409 `conflict`）。成功时创建一条 `pending` 申请（10 分钟内有效；同一 owner 新建申请会取消他之前未开始的申请），写审计 `user.impersonation.request`，返回 `{ id, url, expires_at }` |
+| 确认（“新鲜”的定义） | owner 在浏览器打开身份域的 `url`（`/impersonation/{id}`）。页面只对申请人本人的身份域会话可用，显示目标用户、原因和时长，要求输入当前 TOTP 验证码。“新鲜”= 本次身份域会话在 5 分钟内（§19.4 的再认证窗口）通过了 TOTP；确认表单当场完成这次验证，服务端在创建代登录会话前再次检查 owner 角色、TOTP、目标限制和申请状态 |
+| 会话 | 引擎为目标用户创建一个新的身份域会话，`impersonatedBy = owner 的 user_id`，有效期固定 **60 分钟**，不续期（不随访问滑动）；浏览器的会话 Cookie 换成该会话，owner 原来的会话令牌存入签名 Cookie，结束时恢复（若仍有效）。写审计 `user.impersonation.start`（actor = owner，target = 用户，metadata：impersonation_id、reason、expires_at） |
+| 产品 token | 代登录会话经 SSO 取得的产品 access token 和 id token 带 RFC 8693 `act` 声明：`"act": { "sub": "<owner 的 user_id>" }`。产品可据此识别或拒绝（见集成教程）。代登录期间签发的 refresh token 只在代登录有效期内可用；结束或到期后，这些 token 一律失效（数据库触发器在会话删除时删除它们；refresh 时也会检查） |
+| 限制 | 代登录会话不能授权控制台 client（`access_denied`），api 也拒绝带 `act` 的控制台 token；不能修改账号安全设置：引擎只放行会话查询、产品授权与同意、token / userinfo / JWKS、退出，其余（改密码、改邮箱、设置密码、绑定 / 解绑登录方式、TOTP、passkey、删除账号、会话管理、登录）一律 403 `IMPERSONATION_RESTRICTED`；身份域用户中心的数据导出、下载、删除申请与绑定表单同样拒绝 |
+| 界面 | 代登录期间，身份域每个页面顶部显示常驻横幅（目标用户、owner、结束时间）和“结束代登录”按钮 |
+| 结束 | 横幅按钮（`POST /impersonation/stop`）或退出登录；到期后由 consumer 的 15 分钟 cron 收尾（会话本身到期即不可用）。写审计 `user.impersonation.stop`，`metadata.end_reason` 为 `stopped` / `signed_out` / `expired` / `target_banned` |
+
+#### 21.5.3 用户导出（产品环境级）
+
+| 项 | 规格 |
+|---|---|
+| 接口 | `GET /v1/admin/products/:id/environments/:env/users/export[?include_email=true][&after=usr_…]`，`users:read`（本产品），返回 `text/csv; charset=utf-8` 附件 |
+| 范围 | 在该环境登录过的用户（`product_env_users`：每个产品环境首次授权时记录，见 §21.6），排除已删除用户；按 `user_id` 升序，每次最多 5000 行；还有更多时响应头 `X-Next-Cursor` 给出下一页的 `after` |
+| 列 | `user_id, is_anonymous, account_created_at, env_first_seen_at, membership_status, product_joined_at, product_last_seen_at, providers, banned`；`include_email=true` 时追加 `email`（匿名用户为空）。`providers` 用 `;` 分隔。不导出姓名、头像、IP、会话、token |
+| 安全 | 单元格以 `= + - @` 或制表符 / 回车开头时前置 `'`，防止表格公式注入。写审计 `user.export`（env、行数、是否含邮箱、after） |
 
 ### 21.6 产品 Webhook
 
 - 平台把与产品相关的用户事件（例如用户首次进入产品、游客升级、用户删除）推送到产品配置的 HTTPS 地址；签名、重试、投递记录。
 
-（待补充规格）
+**端点配置**（每个产品环境独立）：
+
+| 项 | 规格 |
+|---|---|
+| 接口 | `GET/POST /v1/admin/products/:id/environments/:env/webhooks`；`PATCH/DELETE …/webhooks/:webhook_id`；`POST …/webhooks/:webhook_id/rotate-secret`；`POST …/webhooks/:webhook_id/test`；`GET …/webhooks/:webhook_id/deliveries` |
+| 权限 | 读（列表、投递记录）：`webhooks:read` = owner、operator、本产品的 product_admin 与 product_developer。写（创建、修改、删除、轮换、测试）：`webhooks:manage` = owner、本产品的 product_admin；product_developer 只能写 dev / staging（与密钥管理一致）。其他产品的端点一律 404 |
+| 字段 | `url`（≤ 2048）、`description`（≤ 200，可选）、`event_types`（至少一个可订阅类型）、`enabled`（默认 true）。每个产品环境最多 **10** 个端点，超出 422 `quota_exceeded` |
+| URL 规则 | 必须 `https://`；不允许 URL 中带用户名密码；主机不能是 `localhost` / `*.localhost`，不能是私有、回环、链路本地、CGNAT、未指定、组播等 IP 字面量（IPv4、IPv6 及 IPv4 映射地址）。`dev` 环境额外允许 `http://localhost`、`http://127.0.0.1`、`http://[::1]`（任意端口）。不合规返回 400 `validation_failed`。投递时再次检查；Workers 的出站请求本身也到不了内网 |
+| 签名密钥 | `whsec_` + 32 字节随机数的 base64，只在创建和轮换时返回一次。签名需要原文，所以以原文存在平台 D1（与平台其他元数据同一信任边界）。轮换后旧密钥继续并行签名 24 小时（签名头同时带两个签名） |
+| 审计 | `webhook.create` / `webhook.update` / `webhook.delete` / `webhook.rotate_secret` / `webhook.test`；审计中不写密钥 |
+
+**事件**（payload 的 zod schema 在 `packages/contracts/src/webhooks.ts`）：
+
+所有事件的请求体都是 `{ "id": "msg_…", "type": "…", "timestamp": "ISO 8601", "product_id": "…", "env": "…", "data": { … } }`。只含该产品环境自己的数据：没有邮箱、姓名、IP，也没有用户在其他产品的信息。
+
+| type | 何时发送 | 发给哪些环境 | `data` |
+|---|---|---|---|
+| `user.joined` | 用户第一次在某个产品环境完成授权（`product_env_users` 新增一行；与 membership 的写入在同一 batch） | 该环境 | `{ user_id, anonymous, first_seen_at }` |
+| `user.upgraded` | 匿名（游客）账号绑定了第一个凭据（ID 不变，§19.7） | 用户登录过的全部产品环境 | `{ user_id, provider }` |
+| `user.deleted` | 删除流程完成：`scope = "account"` 为全局账号删除，`"product"` 为用户退出该产品后的数据清理 | 删除前用户登录过的产品环境（product 范围只限该产品） | `{ user_id, scope }` |
+| `user.banned` | 封禁或更新封禁 | 用户登录过的全部产品环境 | `{ user_id, expires_at }`（不含原因） |
+| `user.unbanned` | 解封或封禁到期 | 同上 | `{ user_id, reason: "admin" \| "expired" }` |
+| `webhook.test` | 控制台“发送测试”，只发给该端点，不重试；不可订阅 | — | `{ webhook_id }` |
+
+“用户登录过的产品环境”= `product_env_users` 中的记录（迁移时从已有 refresh token 回填）；用户退出产品或删除账号时这些记录随之删除。
+
+**投递**：
+
+| 项 | 规格 |
+|---|---|
+| Outbox | 事件写入 `webhook_messages`（每个产品环境一条，`id` 即 `webhook-id`），并为每个已启用且订阅了该类型的端点写一条 `webhook_deliveries`；与领域变更在同一个 D1 batch 中写入（删除完成、封禁、解封、首次进入；游客升级在引擎的账号创建钩子之后紧接着写入）。没有订阅端点时不写 |
+| 首次尝试 | 产生事件的 Worker 用 `waitUntil` 立即投递；投递前以条件 UPDATE 认领（租约 5 分钟），cron 与 `waitUntil` 不会重复发送 |
+| 请求 | `POST` JSON；头 `webhook-id`、`webhook-timestamp`（Unix 秒）、`webhook-signature`（`v1,<base64(HMAC-SHA256(key, "{id}.{timestamp}.{body}"))>`，多个签名以空格分隔），即 [Standard Webhooks](https://www.standardwebhooks.com/) 规范；`user-agent: z-cloudbase-webhooks/1`。超时 10 秒，不跟随重定向；只有 2xx 算成功 |
+| 重试 | 失败后按 15 分钟 × 2^(n−1) 退避（上限 12 小时）：15 分钟、30 分钟、1 小时、2 小时、4 小时、8 小时、12 小时；共 **8** 次尝试（约 28 小时）后标记 `failed`，不再重试。重试由 consumer 已有的 15 分钟 cron 执行（不新增 cron 触发器），每次最多处理 100 条 |
+| 停用 / 删除 | 停用端点时取消其未完成投递（`cancelled`）；删除端点同时删除其投递与记录 |
+| 投递记录 | 每次尝试记一条：时间、状态码、耗时、错误摘要、响应体前 256 字符；控制台显示最近 100 条。每个端点只保留最近 100 条尝试；消息与投递保留 30 天（daily cron 清理） |
+| 校验 | `@z-cloudbase/server` 提供 `verifyWebhook({ secret, headers, body })`：常量时间比较，时间戳偏差超过 5 分钟拒绝 |
+
+**数据模型**：`webhook_endpoints`（id `whe_…`、product_env_id、url、description、event_types JSON、enabled、secret、previous_secret、previous_secret_expires_at、created_by、时间戳）、`webhook_messages`（id `msg_…`、product_env_id、event_type、payload、created_at）、`webhook_deliveries`（message_id + endpoint_id 主键、status `pending`/`delivered`/`failed`/`cancelled`、attempts、next_attempt_at、last_attempt_at）、`webhook_attempts`（投递记录）。`product_env_users`（product_env_id + user_id 主键、first_seen_at）与代登录表 `impersonations` 见 21.5。
 
 ### 21.7 数据采集增强
 
