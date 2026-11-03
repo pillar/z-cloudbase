@@ -88,6 +88,18 @@ describe('funnel', () => {
     expect(beta.body.steps.map((s: Json) => s.actors)).toEqual([1, 1]);
   });
 
+  it('counts a next step tracked in the same millisecond, but a repeated step needs a later occurrence', async () => {
+    const DEV = w.envs.a.dev;
+    await occur(DEV, 'same_ms', 'open', t(D5, 8));
+    await occur(DEV, 'same_ms', 'pay', t(D5, 8));
+    await occur(DEV, 'twice', 'open', t(D5, 9));
+    await occur(DEV, 'twice', 'open', t(D5, 9, 5));
+    const r = await get(w.tok.adminA, `/products/${w.a}/analytics/funnel?env=dev&${range}&steps=open,pay`);
+    expect(r.body.steps.map((s: Json) => s.actors)).toEqual([2, 1]);
+    const rep = await get(w.tok.adminA, `/products/${w.a}/analytics/funnel?env=dev&${range}&steps=open,open`);
+    expect(rep.body.steps.map((s: Json) => s.actors)).toEqual([2, 1]);
+  });
+
   it('validates steps, window and filters', async () => {
     for (const q of ['steps=view', 'steps=a,b,c,d,e,f', 'steps=View,signup', 'steps=view,signup&window=99999999', 'steps=view,signup&filter=prop:undeclared:x', 'steps=view,signup&filter=event_name:view']) {
       expect(await errorCode(await api(w.tok.adminA, 'GET', `/products/${w.a}/analytics/funnel?env=prod&${q}`))).toBe('validation_failed');

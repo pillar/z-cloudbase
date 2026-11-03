@@ -862,7 +862,7 @@ Web SDK 新增采集项，全部默认关闭，在 `createClient({ autocapture: 
 | `GET …/analytics/export` | 见 §21.9 | | R2 归档 |
 
 - 维度（`by` / `filter`）：`event_name`、`path`、`browser`、`os`、`device`、`country`、`source`，以及已声明的 `prop:<key>`；未声明的键返回 400 `validation_failed`。
-- 漏斗语义：第一步 = 每个 actor 在范围内第一次发生第一步的时间 t1（若有 `filter`，则只计当天首次发生时维度匹配的那天）；第 k 步 = t(k-1) 之后、t1 + window 之内第 k 步的最早发生时间。actor 表只保存每天的首次与末次时间，所以若某步在同一天先于 t(k-1) 发生过、之后又发生，用当天末次时间判断（可能低估转化，不会高估）。
+- 漏斗语义：第一步 = 每个 actor 在范围内第一次发生第一步的时间 t1（若有 `filter`，则只计当天首次发生时维度匹配的那天）；第 k 步 = 不早于 t(k-1)（与上一步是同一事件时须晚于 t(k-1)）、且在 t1 + window 之内的第 k 步最早发生时间。actor 表只保存每天的首次与末次时间，所以若某步在同一天先于 t(k-1) 发生过、之后又发生，用当天末次时间判断（可能低估转化，不会高估）。
 - 留存语义：不带 `start_event` 时 cohort = actor 的首次出现日（`actors.first_day`，受保留期限制）；带 `start_event` 时 = 该事件在范围内第一次发生的那天。`retained[k]` = 第 k 个周期内发生过 `return_event`（缺省为任意事件）的 actor 数；周以 UTC 周一为起点。
 - `users`（breakdown）= 不同 `user_key` 数（已登录用户）；Analytics Engine 对非 index 字段的去重计数在采样时是近似值（官方 sampling 文档），生产结果标 `source: analytics_engine`。
 - 跨产品：每个新端点都在读数据前做 `authorize`，A 的管理员查询 B 返回 403，不存在的产品返回 404；SQL 一律带 `product_env_id` 条件。

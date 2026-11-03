@@ -17,8 +17,8 @@ export interface FunnelInput {
 }
 
 /**
- * Sequential first-occurrence funnel: step 1 = first occurrence in [from, to); step k = earliest occurrence after
- * step k-1 and within t1 + window. Per day only first/last times are known, so an occurrence before t(k-1) on
+ * Sequential first-occurrence funnel: step 1 = first occurrence in [from, to); step k = earliest occurrence at or
+ * after step k-1 (strictly after when the step repeats the previous event) and within t1 + window. Per day only first/last times are known, so an occurrence before t(k-1) on
  * the same day falls back to that day's last time (may undercount, never overcounts).
  */
 export async function funnel(db: D1Database, q: FunnelInput): Promise<FunnelResult> {
@@ -37,11 +37,14 @@ export async function funnel(db: D1Database, q: FunnelInput): Promise<FunnelResu
   }
   const ctes = [`s1 AS (SELECT actor, MIN(first_at) AS t1, MIN(first_at) AS t FROM actor_daily WHERE ${s1Where} GROUP BY actor)`];
   for (let k = 2; k <= q.steps.length; k++) {
-    const at = 'CASE WHEN a.first_at > p.t THEN a.first_at ELSE a.last_at END';
+    // "After" the previous step: at the same millisecond counts for a different event (events tracked together),
+    // but a repeated step needs a later occurrence than the one that satisfied the previous step.
+    const after = q.steps[k - 1] === q.steps[k - 2] ? '>' : '>=';
+    const at = `CASE WHEN a.first_at ${after} p.t THEN a.first_at ELSE a.last_at END`;
     ctes.push(
       `s${k} AS (SELECT p.actor, p.t1, MIN(${at}) AS t FROM s${k - 1} p
         JOIN actor_daily a ON a.product_env_id = ? AND a.event_name = ? AND a.actor = p.actor
-          AND a.day >= p.t / ${DAY_MS} AND a.day <= (p.t1 + ?) / ${DAY_MS} AND a.last_at > p.t
+          AND a.day >= p.t / ${DAY_MS} AND a.day <= (p.t1 + ?) / ${DAY_MS} AND a.last_at ${after} p.t
         WHERE ${at} <= p.t1 + ?
         GROUP BY p.actor, p.t1)`,
     );
