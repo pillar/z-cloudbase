@@ -23,8 +23,19 @@ export const LOGO_URL: string | null = validLogoUrl(logo) ? logo : null;
 /** `--primary-color`: replaces the indigo accent (shadcn `--primary` and the tokens derived from it). */
 export const PRIMARY_COLOR: string | null = validColor(color) ? color : null;
 
-/** Applies the primary color to the theme tokens (light and dark alike); called once at startup. */
+/** Favicon: the logo, else a rounded square in the primary color (the default mark's background). */
+export function faviconHref(): string {
+  if (LOGO_URL) return LOGO_URL;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${PRIMARY_COLOR ?? '#4f46e5'}"/></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+/** Applies the primary color to the theme tokens (light and dark alike) and sets the favicon; called once at startup. */
 export function applyBrand(root: HTMLElement = document.documentElement) {
+  const icon = document.createElement('link');
+  icon.rel = 'icon';
+  icon.href = faviconHref();
+  document.head.append(icon);
   if (!PRIMARY_COLOR) return;
   for (const token of ['--primary', '--ring', '--sidebar-primary', '--sidebar-ring', '--chart-1']) root.style.setProperty(token, PRIMARY_COLOR);
 }
