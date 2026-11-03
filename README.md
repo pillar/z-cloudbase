@@ -49,6 +49,8 @@ Open the console URL, sign in, create your first product. To try it without touc
 
 There is no "Deploy to Cloudflare" button: it deploys one Worker per button and cannot provision service bindings, Analytics Engine or the first administrator (reasoning in PRD §21.1).
 
+There is no "Deploy to Cloudflare" button: it deploys one Worker per button and cannot provision service bindings, Analytics Engine or the first administrator (reasoning in PRD §21.1).
+
 ### Options
 
 | Flag | Default | |

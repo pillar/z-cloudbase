@@ -44,6 +44,8 @@ Administrator (the password is shown only now — store it in a password manager
 
 打开控制台地址登录，就可以创建第一个产品。想先看看效果、不动账号里的任何东西，可以用 `pnpm platform:deploy --dry-run`：它只在本地生成配置并构建所有 Worker。
 
+没有“Deploy to Cloudflare”一键按钮：它每个按钮只部署一个 Worker，无法配置服务绑定、Analytics Engine 和首个管理员（依据见 PRD §21.1）。
+
 ### 参数
 
 | 参数 | 默认值 | 说明 |
