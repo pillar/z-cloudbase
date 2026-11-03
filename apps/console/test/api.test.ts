@@ -52,4 +52,20 @@ describe('api client', () => {
     await expect(bad.api.get('/me')).rejects.toMatchObject({ status: 502, code: 'internal' });
     expect(bad.onUnauthorized).not.toHaveBeenCalled();
   });
+
+  it('getText returns the raw body and headers, and uses the same error handling', async () => {
+    const csv = client(() => new Response('user_id\r\nusr_1\r\n', { status: 200, headers: { 'content-type': 'text/csv', 'x-next-cursor': 'usr_1' } }));
+    const res = await csv.api.getText('/products/p1/environments/dev/users/export', { include_email: 'false', after: undefined });
+    expect(res.text).toBe('user_id\r\nusr_1\r\n');
+    expect(res.headers.get('X-Next-Cursor')).toBe('usr_1');
+    const [url, init] = csv.fetchFn.mock.calls[0]!;
+    expect(url).toBe('https://api.example/v1/admin/products/p1/environments/dev/users/export?include_email=false');
+    expect(init!.headers).toMatchObject({ authorization: 'Bearer TOKEN' });
+
+    const denied = client(() => json({ error: { code: 'forbidden', message: 'Not allowed: users:read' } }, 403));
+    await expect(denied.api.getText('/x')).rejects.toMatchObject({ status: 403, code: 'forbidden', message: 'Not allowed: users:read' });
+    const unauth = client(() => json({ error: { code: 'token_expired', message: 'expired' } }, 401));
+    await expect(unauth.api.getText('/x')).rejects.toMatchObject({ status: 401 });
+    expect(unauth.onUnauthorized).toHaveBeenCalledTimes(1);
+  });
 });

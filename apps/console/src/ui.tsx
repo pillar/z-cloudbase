@@ -50,6 +50,8 @@ export const common = defineMessages({
     status_pending: '处理中',
     status_completed: '已完成',
     status_failed: '失败',
+    status_delivered: '已送达',
+    status_cancelled: '已取消',
     env_dev: '开发',
     env_staging: '预发布',
     env_prod: '生产',
@@ -84,6 +86,8 @@ export const common = defineMessages({
     status_pending: 'Pending',
     status_completed: 'Completed',
     status_failed: 'Failed',
+    status_delivered: 'Delivered',
+    status_cancelled: 'Cancelled',
     env_dev: 'Development',
     env_staging: 'Staging',
     env_prod: 'Production',
@@ -220,6 +224,8 @@ const STATUS_STYLE: Record<string, string> = {
   failed: 'bg-destructive/10 text-destructive border-destructive/20',
   revoked: 'bg-muted text-muted-foreground',
   archived: 'bg-muted text-muted-foreground',
+  delivered: 'bg-success/10 text-success border-success/20',
+  cancelled: 'bg-muted text-muted-foreground',
 };
 
 /** Coloured status pill; known statuses are translated, others shown as given. */

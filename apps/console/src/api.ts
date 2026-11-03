@@ -27,6 +27,8 @@ export interface ApiClient {
   post<T>(path: string, body?: unknown): Promise<T>;
   patch<T>(path: string, body: unknown): Promise<T>;
   delete<T = void>(path: string): Promise<T>;
+  /** GET a non-JSON body (e.g. CSV export) together with the response headers. */
+  getText(path: string, query?: Query): Promise<{ text: string; headers: Headers }>;
 }
 
 export function buildUrl(origin: string, path: string, query?: Query): string {
@@ -41,7 +43,7 @@ export function buildUrl(origin: string, path: string, query?: Query): string {
 export function createApiClient(opts: ApiClientOptions): ApiClient {
   const doFetch = opts.fetch ?? fetch;
 
-  async function request<T>(method: string, path: string, query?: Query, body?: unknown): Promise<T> {
+  async function send(method: string, path: string, query?: Query, body?: unknown): Promise<Response> {
     const res = await doFetch(buildUrl(opts.origin, path, query), {
       method,
       headers: {
@@ -50,17 +52,19 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-    if (res.status === 204) return undefined as T;
-    const payload = (await res.json().catch(() => null)) as
-      | { error?: { code?: string; message?: string; request_id?: string } }
-      | T
-      | null;
     if (!res.ok) {
       if (res.status === 401) opts.onUnauthorized?.();
-      const e = (payload as { error?: { code?: string; message?: string; request_id?: string } } | null)?.error;
+      const payload = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string; request_id?: string } } | null;
+      const e = payload?.error;
       throw new ApiRequestError(res.status, e?.code ?? 'internal', e?.message ?? `Request failed (${res.status})`, e?.request_id);
     }
-    return payload as T;
+    return res;
+  }
+
+  async function request<T>(method: string, path: string, query?: Query, body?: unknown): Promise<T> {
+    const res = await send(method, path, query, body);
+    if (res.status === 204) return undefined as T;
+    return (await res.json().catch(() => null)) as T;
   }
 
   return {
@@ -68,5 +72,9 @@ export function createApiClient(opts: ApiClientOptions): ApiClient {
     post: (path, body) => request('POST', path, undefined, body),
     patch: (path, body) => request('PATCH', path, undefined, body),
     delete: (path) => request('DELETE', path),
+    getText: async (path, query) => {
+      const res = await send('GET', path, query);
+      return { text: await res.text(), headers: res.headers };
+    },
   };
 }

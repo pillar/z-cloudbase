@@ -1,6 +1,6 @@
 // Response shapes of /v1/admin (services/api/src/routes/admin). Request bodies are validated server-side
 // against the contracts schemas, so only responses are typed here.
-import type { Environment } from '@z-cloudbase/contracts';
+import type { BanState, Environment, WebhookAttempt, WebhookEndpoint } from '@z-cloudbase/contracts';
 
 export interface Grant {
   role: 'owner' | 'operator' | 'product_admin' | 'product_developer';
@@ -95,6 +95,8 @@ export interface MembershipRow {
 }
 export interface UserLookup {
   user: { id: string; name: string; email: string; email_verified: boolean; is_anonymous: boolean; created_at: string | number; deleted_at: string | number | null };
+  /** Platform-wide ban; `reason` only for owners. */
+  ban?: BanState;
   memberships: Array<{ product_id: string; product_name: string; status: MembershipRow['status']; joined_at: number; last_seen_at: number | null }>;
   deletion_requests: Array<{ id: string; kind: string; scope: string; product_id: string | null; status: string; requested_at: number; due_at: number; completed_at: number | null }>;
 }
@@ -118,4 +120,25 @@ export interface AuditEntry {
   target_id: string | null;
   request_id: string | null;
   metadata: Record<string, unknown>;
+}
+
+export interface Impersonation {
+  id: string;
+  /** Confirmation page on the identity domain (owner re-enters a TOTP code there). */
+  url: string;
+  expires_at: string;
+}
+
+export interface Webhook extends WebhookEndpoint {
+  /** Set while the previous secret still signs after a rotation (epoch ms). */
+  previous_secret_expires_at: number | null;
+}
+export interface CreatedWebhook extends Webhook {
+  /** Signing secret (`whsec_…`); returned exactly once. */
+  secret: string;
+}
+export type { WebhookAttempt };
+export interface WebhookTestResult {
+  message_id: string;
+  attempt: WebhookAttempt | null;
 }
