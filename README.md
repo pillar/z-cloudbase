@@ -120,7 +120,7 @@ There is no web installer and no public admin sign-up: the first administrator c
 ## Integrate a product
 
 1. In the console: create a product, set its redirect URIs and allowed origins, copy the publishable key (`pk_dev_…`), create a service key for your backend if needed.
-2. Build the SDK tarballs: `pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`, `z-cloudbase-server-<v>.tgz` (or install `@z-cloudbase/web` / `@z-cloudbase/server` from npm).
+2. Install the SDKs from npm: `npm i @z-cloudbase/web` (frontend), `npm i @z-cloudbase/server` (backend). If your deployment changed the SDK, build tarballs instead: `pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`, `z-cloudbase-server-<v>.tgz`.
 3. Follow the integration guide — [English](docs/integration-guide.en.md) or [中文](docs/integration-guide.md) (written so an AI coding assistant can follow it step by step).
 
 ```ts
@@ -151,6 +151,18 @@ pnpm bootstrap:local --persist-to .wrangler-state   # local state + administrato
 `pnpm dev` starts identity / api / consumer on http://localhost:8787 and the console on http://localhost:5173 (state in `.wrangler-state/`, gitignored; Ctrl-C stops everything). See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 Everything runs locally on Miniflare; tests never touch a Cloudflare account. See [CLAUDE.md](CLAUDE.md) for conventions and [database/seeds/README.md](database/seeds/README.md) for the local stack. Requirements and specifications: [z-cloudbase-prd-v3.0.md](z-cloudbase-prd-v3.0.md) (Chinese).
+
+## Release
+
+The SDKs are published to npm by `.github/workflows/release.yml` through an npm trusted publisher (GitHub OIDC, no token). The trusted publisher may only **stage** a version; a maintainer publishes it with two-factor authentication.
+
+1. Bump `version` in `package.json`, `packages/sdk-web/package.json` and `packages/sdk-server/package.json` (they must match), move the CHANGELOG `Unreleased` entries under the new version, run the checks above, commit.
+2. `git tag -a vX.Y.Z -m "z-cloudbase X.Y.Z"`, then `git push origin main` and `git push origin vX.Y.Z`.
+3. The workflow checks that the tag matches the versions, runs typecheck and tests, builds the tarballs, stages both packages on npm with provenance and creates a GitHub release with the tarballs.
+4. Wait for npm's automated review: `npm stage view <id>` (the id is in the workflow log) shows `validating`, then `staged`.
+5. Publish each package: `npm stage approve <id> --otp=<code>` (with a security key or passkey, leave out `--otp` and confirm in the browser). Check: `npm view @z-cloudbase/web dist-tags.latest`.
+
+If the workflow fails before anything was staged, fix the cause on `main` and move the tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -f -a vX.Y.Z …`, `git push origin vX.Y.Z`); a version that was staged or published cannot be reused, so release the next patch version instead. A rejected stage is removed with `npm stage reject <id>`.
 
 ## Status
 

@@ -115,7 +115,7 @@ pnpm platform:destroy --prefix <prefix>              # 要求输入前缀确认�
 ## 产品接入
 
 1. 在控制台创建产品，填写回调地址和允许的来源，复制可发布密钥（`pk_dev_…`）；有后端时再创建服务密钥。
-2. 构建 SDK 包：`pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`、`z-cloudbase-server-<v>.tgz`（也可直接从 npm 安装 `@z-cloudbase/web` / `@z-cloudbase/server`）。
+2. 从 npm 安装 SDK：`npm i @z-cloudbase/web`（前端）、`npm i @z-cloudbase/server`（后端）。如果你的部署改过 SDK，改用 tgz 包：`pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`、`z-cloudbase-server-<v>.tgz`。
 3. 按接入教程操作：[中文](docs/integration-guide.md) 或 [English](docs/integration-guide.en.md)（AI 编程助手可以按步骤执行）。
 
 ## 开发
@@ -132,6 +132,18 @@ pnpm bootstrap:local --persist-to .wrangler-state   # 本地状态 + 随机密�
 `pnpm dev` 在 http://localhost:8787 启动 identity / api / consumer，在 http://localhost:5173 启动控制台（状态在 gitignore 的 `.wrangler-state/`，Ctrl-C 停止全部）。贡献指南见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全策略见 [SECURITY.md](SECURITY.md)。
 
 全部在本地 Miniflare 上运行，测试不会访问 Cloudflare 账号。约定见 [CLAUDE.md](CLAUDE.md)，本地栈说明见 [database/seeds/README.md](database/seeds/README.md)，需求与规格见 [PRD v3.0](z-cloudbase-prd-v3.0.md)。
+
+## 发版
+
+SDK 由 `.github/workflows/release.yml` 通过 npm trusted publisher（GitHub OIDC，无 token）发布到 npm。trusted publisher 只能把版本放进**暂存区**，由维护者用两步验证正式发布。
+
+1. 修改 `package.json`、`packages/sdk-web/package.json`、`packages/sdk-server/package.json` 的 `version`（三者必须一致），把 CHANGELOG `Unreleased` 下的条目移到新版本下，跑完上面的检查后提交。
+2. `git tag -a vX.Y.Z -m "z-cloudbase X.Y.Z"`，然后 `git push origin main`、`git push origin vX.Y.Z`。
+3. workflow 校验 tag 与版本一致，跑类型检查和测试，打包，把两个包连同 provenance 暂存到 npm，并创建附带 tgz 的 GitHub Release。
+4. 等 npm 自动审查结束：`npm stage view <id>`（id 在 workflow 日志里）从 `validating` 变为 `staged`。
+5. 逐个正式发布：`npm stage approve <id> --otp=<验证码>`（用安全密钥或 Passkey 时去掉 `--otp`，在浏览器里确认）。检查：`npm view @z-cloudbase/web dist-tags.latest`。
+
+如果 workflow 在暂存之前就失败，在 `main` 上修复后移动 tag（`git push origin :refs/tags/vX.Y.Z`、`git tag -f -a vX.Y.Z …`、`git push origin vX.Y.Z`）；已暂存或已发布过的版本号不能再用，改发下一个补丁版本。不要的暂存版本用 `npm stage reject <id>` 删除。
 
 ## 状态
 

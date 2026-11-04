@@ -89,9 +89,18 @@ pnpm sdk:pack                           # 构建可分发的 SDK：dist-sdk/z-cl
 
 ## SDK 分发
 
-- `@z-cloudbase/web` / `@z-cloudbase/server` 在仓库内导出 TS 源码；对外分发用 `pnpm sdk:pack`（`scripts/build-sdk.mjs`：esbuild 打包并内联 contracts/security，tsc 生成类型，`publishConfig` 生成干净的 package.json）。npm scope `@z-cloudbase` 尚未在 npm 注册，发布前确认可用。
+- `@z-cloudbase/web` / `@z-cloudbase/server` 在仓库内导出 TS 源码；对外分发用 `pnpm sdk:pack`（`scripts/build-sdk.mjs`：esbuild 打包并内联 contracts/security，tsc 生成类型，`publishConfig` 生成干净的 package.json）。已发布到 npm（`@z-cloudbase` 组织，0.2.0 起）；接入文档默认从 npm 安装。
 - Web SDK 的浏览器包不得引入 zod（构建脚本会检查）：SDK 运行时只能从 contracts 中不依赖 zod 的模块（`ids.ts`、`limits.ts`、`errors.ts`）取常量。
 - 改了 SDK 的公开 API 或行为，同步更新 `docs/integration-guide.md`，并升 `version`。
+
+## 发版（npm + GitHub Release）
+
+流程见 README「Release」一节：`release.yml` 由 tag `v*` 触发，经 npm trusted publisher（OIDC，无 token、无 secret）`npm stage publish`，用户用 `npm stage approve <id>`（2FA）正式发布。
+
+- 分工：Claude 在本地准备——三处 `version` 一致（根、sdk-web、sdk-server）、CHANGELOG 从 `Unreleased` 移到新版本并补比较链接、跑 `pnpm -r typecheck` / 相关测试 / `pnpm sdk:pack`、提交并打本地 tag `vX.Y.Z`。推送 main 和 tag、`npm login`、`npm stage approve` 都由用户执行（auto mode 会拦截 Claude 推 tag 等公开发布操作；2FA 只能用户输入）。推送后 Claude 用 `gh run watch <run id>` 跟踪 release workflow，从日志取 stage id，用 `npm stage view <id>` 看审查状态（不需要 2FA），发布后用 `npm view` / `npm audit signatures` 核实。
+- 找 release 运行：按 tag 推送后几秒才出现，用 `gh run list --workflow release.yml --limit 1 --json databaseId,headSha` 按 `headSha` 匹配（`--commit` 过滤对 tag 触发的运行不可靠）。
+- 已踩过的坑：tarball 必须以 `./dist-sdk/x.tgz` 传给 npm（否则被当成 GitHub 仓库简写）；SDK 的 package.json 必须带 `repository.url`（npm 用它校验 provenance，由 `scripts/build-sdk.mjs` 写入发布清单）；runner 自带的 npm 不一定有 `npm stage`，workflow 固定安装 npm 11.19.0（已验证可用）；暂存后 npm 自动审查要几分钟，之前 approve 返回 409。
+- tag 只在暂存之前失败时才可移动；已暂存或发布的版本号不能复用，改发下一个补丁版本。trusted publisher 不允许直接 publish（用户选择），不要改 workflow 去绕过暂存。
 
 ## 工作约定
 
