@@ -2,7 +2,7 @@
 
 > Translation of [integration-guide.md](integration-guide.md) (Chinese, the maintained original). If the two differ, the Chinese version wins.
 >
-> Version: SDK 0.2.1 · updated 2026-11-04
+> Version: SDK 0.2.2 · updated 2026-11-04
 > This is the only instruction a product needs to integrate with this platform (a self-hosted instance of z-cloudbase). `https://id.example.com` / `https://api.example.com` / `https://console.example.com` below are placeholders: replace them with the addresses of your deployment (printed at the end of `pnpm platform:deploy`, or ask the platform administrator). Follow the "Execution checklist" in order; every step has a verifiable result. If you see behavior that differs from this document, record the request's `x-request-id` and the error code and report it to the platform team instead of working around it.
 
 ## 0. Execution checklist (the AI completes these in order)
