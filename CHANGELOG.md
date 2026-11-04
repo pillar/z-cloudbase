@@ -7,8 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Identity (behavior change): a token request with a wrong PKCE `code_verifier` gets `400 invalid_grant` (RFC 6749 §5.2) instead of `401 invalid_request`; the authorization code is still burned. Comes with Better Auth 1.7.14 (from 1.7.7; no schema change).
-- Dependencies: Better Auth 1.7.14 with its peers (better-call 1.4.4, @better-auth/utils 0.5.1, @better-fetch/fetch 1.3.3), wrangler 4.156, @cloudflare/vitest-plugin 1.4.11, vitest 4.1.12, esbuild 0.28, hono, jose, zod, react, vite, radix-ui, lucide-react, recharts 3.10 and playwright-core 1.64. `@types/node` stays on 24 (the runtime). Dependabot groups Better Auth with its peers and skips majors of `@types/node` and `better-call`.
+- Identity (behavior change): a token request with a wrong PKCE `code_verifier` gets `400 invalid_grant` (RFC 6749 §5.2) instead of `401 invalid_request`; the authorization code is still burned. Comes with Better Auth 1.7.14 (from 1.7.7; no schema change); now 1.7.15.
+- Dependencies: Better Auth 1.7.15 with its peers (better-call 1.4.4, @better-auth/utils 0.5.1, @better-fetch/fetch 1.3.3), wrangler 4.156, @cloudflare/vitest-plugin 1.4.11, vitest 4.1.12, esbuild 0.28, hono, jose, zod, react, vite, radix-ui, lucide-react, recharts 3.10 and playwright-core 1.64. `@types/node` stays on 24 (the runtime). Dependabot groups Better Auth with its peers and skips majors of `@types/node` and `better-call`.
 
 ## [0.2.1] - 2026-11-04
 

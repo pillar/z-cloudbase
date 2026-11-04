@@ -831,7 +831,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 
 ### 21.3 Passkey 与 Magic link
 
-**Passkey**（Better Auth `@better-auth/passkey` 1.7.14，底层 SimpleWebAuthn；身份域变量 `PASSKEYS`，默认 `true`）：
+**Passkey**（Better Auth `@better-auth/passkey` 1.7.15，底层 SimpleWebAuthn；身份域变量 `PASSKEYS`，默认 `true`）：
 
 - RP：`rpID` = `ISSUER` 的主机名，`origin` = `ISSUER` 的 origin（固定，不取请求头），`rpName` = `PLATFORM_NAME`。迁移 `0016` 建 `passkey` 表。
 - 注册（账号页 `/account` → “添加 Passkey”）：要求登录且 5 分钟内认证过（引擎 `freshSessionMiddleware`），`attestation=none`，`residentKey=preferred`，**`userVerification=required`**，服务端检查 UV 标志，未验证用户的注册被拒绝。匿名用户不能添加（Passkey 不是升级途径）。
