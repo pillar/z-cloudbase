@@ -62,7 +62,7 @@ Better Auth oauth-provider 只在请求带 RFC 8707 的 `resource` 参数时签�
 - 完整流程通过 HTTP 跑通：`/api/auth/oauth2/authorize` 在没有会话时 302 到 `/login?<签名后的 oauth_query>`；随后 `POST /api/auth/sign-in/email` 时附带 `oauth_query`，引擎会继续处理 authorize 并返回带 `code`、`state` 和 `iss`（RFC 9207）的回调 URL；最后 `/oauth2/token` 用 PKCE 换取 token。
 - `state` 被原样带回，测试中由 RP 侧比对。id_token 使用 EdDSA 签名，`aud = client_id`，`nonce` 与请求一致，并通过 JWKS 验签。
 - 产品 client 是第一方 client，注册时设为 `skip_consent: true`。consent 页面（`consentPage: /consent`）已经配置，但本次没有走 consent 分支。
-- 错误的 `code_verifier` 会被拒绝，同时 code 被消费，之后再用正确的 verifier 也会失败。**不符合 RFC 之处**：引擎在这种情况下返回 `401 invalid_request`（"code verification failed"），而 RFC 6749 §5.2 要求 `400 invalid_grant`。它的安全效果不变，但严格遵循 RFC 的客户端可能会误判错误类型。
+- 错误的 `code_verifier` 会被拒绝，同时 code 被消费，之后再用正确的 verifier 也会失败。**不符合 RFC 之处**：引擎在这种情况下返回 `401 invalid_request`（"code verification failed"），而 RFC 6749 §5.2 要求 `400 invalid_grant`。它的安全效果不变，但严格遵循 RFC 的客户端可能会误判错误类型。（1.7.10 起已改为 `400 invalid_grant`，见 better-auth#11724；本仓库 2026-11-04 升到 1.7.14 后测试按 RFC 断言。）
 - 重复使用 code 返回 `400 invalid_grant`。引擎还会撤销该 code 已经签发的 token。
 - 未注册的 `redirect_uri` 不会被跳转。
 
@@ -125,7 +125,7 @@ Better Auth oauth-provider 只在请求带 RFC 8707 的 `resource` 参数时签�
 - **R2（中）**：契约修改（CR-1）会影响 `@z-cloudbase/security`、`@z-cloudbase/testing` 的 `createTestTokenMinter`、SDK 和 api 的测试。
 - **R3（中）**：refresh 重放时，撤销范围是“同一用户在同一 client 的全部设备”；身份会话不会被撤销，也没有审计事件。
 - **R4（中）**：D1 没有事务，多步写入不是原子的，例如注册时的 user + account、client + resource + 关联、`/link/email` 的两次写入。refresh 轮换本身是原子的；如果轮换后的 create 失败，用户需要重新登录，这是安全的失败方向。
-- **R5（低）**：错误的 PKCE verifier 返回 401 `invalid_request`，不符合 RFC 6749 的 400 `invalid_grant`。
+- **R5（低）**：错误的 PKCE verifier 返回 401 `invalid_request`，不符合 RFC 6749 的 400 `invalid_grant`。（已在 Better Auth 1.7.10 修复。）
 - **R6（中）**：在 Google 和 Apple 的 code flow 中，id_token 来自 back channel，只解码、不验签，也不校验 nonce。这符合 OIDC 对 back channel 的允许范围，但 PRD §4.2 第 9 项要求“验证身份令牌和 nonce”，对 Apple 的要求更高，需要评审确认，或者在 `getUserInfo`/`verifyIdToken` 中补充校验。Apple form_post 在 SameSite=Lax 下的行为也没有验证。
 - **R7（低）**：每个 isolate 首次初始化时，引擎会对 D1 做 schema 内省（`validateSchema` 默认开启），冷启动会多几次 D1 查询。可以考虑在生产环境关闭，并依赖迁移流程保证 schema 一致。
 - **R8（低）**：表名沿用引擎默认，没有加前缀。
