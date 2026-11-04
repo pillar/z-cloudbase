@@ -21,7 +21,7 @@
     "dev": "node scripts/dev.ts"
   },
   "devDependencies": {
-    "esbuild": "0.25.12",
+    "esbuild": "0.28.2",
     "typescript": "7.0.2"
   },
   "version": "0.2.1"
