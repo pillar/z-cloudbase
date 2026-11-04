@@ -24,6 +24,13 @@
   },
   "version": "0.2.1",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pillar/z-cloudbase.git",
+    "directory": "packages/sdk-web"
+  },
+  "homepage": "https://github.com/pillar/z-cloudbase#readme",
+  "bugs": "https://github.com/pillar/z-cloudbase/issues",
   "description": "Web SDK: sign-in (SSO, guest), storage, analytics, browser error logs.",
   "files": [
     "dist"

@@ -22,6 +22,13 @@
   },
   "version": "0.2.1",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pillar/z-cloudbase.git",
+    "directory": "packages/sdk-server"
+  },
+  "homepage": "https://github.com/pillar/z-cloudbase#readme",
+  "bugs": "https://github.com/pillar/z-cloudbase/issues",
   "description": "Server SDK: token verification, logs, events, storage with a service key.",
   "files": [
     "dist"

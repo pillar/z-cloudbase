@@ -12,6 +12,7 @@ First release through the npm trusted publisher. The SDK code is the same as 0.2
 ### Changed
 
 - Releases stage the SDKs on npm with trusted publishing (GitHub OIDC; no `NPM_TOKEN`); a maintainer publishes them with `npm stage approve` (2FA). The release workflow passes tarballs as `./dist-sdk/*.tgz` (npm read `dist-sdk/x.tgz` as a GitHub repository).
+- The SDK manifests carry `repository`, `homepage` and `bugs` (npm checks `repository.url` against the provenance).
 - `@z-cloudbase/web` and `@z-cloudbase/server` are on npm; the integration guide installs them from npm (tgz packages remain an option).
 
 ## [0.2.0] - 2026-11-04

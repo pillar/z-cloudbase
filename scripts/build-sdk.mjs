@@ -91,7 +91,8 @@ for (const sdk of SDKS) {
   const stage = path.join(OUT, '_stage', path.basename(pkgDir));
   cpSync(dist, path.join(stage, 'dist'), { recursive: true });
   const manifest = {
-    name: pkg.name, version: pkg.version, description: pkg.description, license: pkg.license, type: 'module', sideEffects: false,
+    name: pkg.name, version: pkg.version, description: pkg.description, license: pkg.license,
+    repository: pkg.repository, homepage: pkg.homepage, bugs: pkg.bugs, type: 'module', sideEffects: false,
     ...pkg.publishConfig, files: ['dist'], dependencies: pkg.dependencies,
   };
   writeFileSync(path.join(stage, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
