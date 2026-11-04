@@ -120,7 +120,7 @@ There is no web installer and no public admin sign-up: the first administrator c
 ## Integrate a product
 
 1. In the console: create a product, set its redirect URIs and allowed origins, copy the publishable key (`pk_dev_…`), create a service key for your backend if needed.
-2. Build the SDK tarballs: `pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`, `z-cloudbase-server-<v>.tgz` (not published to npm yet).
+2. Build the SDK tarballs: `pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`, `z-cloudbase-server-<v>.tgz` (or install `@z-cloudbase/web` / `@z-cloudbase/server` from npm).
 3. Follow the integration guide — [English](docs/integration-guide.en.md) or [中文](docs/integration-guide.md) (written so an AI coding assistant can follow it step by step).
 
 ```ts

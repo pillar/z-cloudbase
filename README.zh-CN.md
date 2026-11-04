@@ -115,7 +115,7 @@ pnpm platform:destroy --prefix <prefix>              # 要求输入前缀确认�
 ## 产品接入
 
 1. 在控制台创建产品，填写回调地址和允许的来源，复制可发布密钥（`pk_dev_…`）；有后端时再创建服务密钥。
-2. 构建 SDK 包：`pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`、`z-cloudbase-server-<v>.tgz`（尚未发布到 npm）。
+2. 构建 SDK 包：`pnpm sdk:pack` → `dist-sdk/z-cloudbase-web-<v>.tgz`、`z-cloudbase-server-<v>.tgz`（也可直接从 npm 安装 `@z-cloudbase/web` / `@z-cloudbase/server`）。
 3. 按接入教程操作：[中文](docs/integration-guide.md) 或 [English](docs/integration-guide.en.md)（AI 编程助手可以按步骤执行）。
 
 ## 开发

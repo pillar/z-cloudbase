@@ -1,6 +1,6 @@
 # 产品接入教程（给产品项目的 AI 开发者）
 
-> 版本：SDK 0.2.0 · 更新于 2026-11-04
+> 版本：SDK 0.2.1 · 更新于 2026-11-04
 > 本文是产品接入本平台（z-cloudbase 的一个自部署实例）的唯一说明。文中的 `https://id.example.com` / `https://api.example.com` / `https://console.example.com` 是占位符，换成你们部署的地址（`pnpm platform:deploy` 结束时打印，或问平台管理员）。按「执行清单」的顺序做，每一步都有可验证的结果。遇到与本文不符的行为，先记录请求的 `x-request-id` 和错误码，再向平台方反馈，不要自行绕过。
 
 ## 0. 执行清单（AI 按顺序完成）
@@ -56,20 +56,17 @@ export const PLATFORM = {
 
 ## 3. 安装 SDK
 
-SDK 还没发布到 npm，用平台方提供的 tgz 包：
+从 npm 安装：
 
 ```sh
-# 平台方在 z-cloudbase 仓库根目录执行，产物在 dist-sdk/
-pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.2.0.tgz, dist-sdk/z-cloudbase-server-0.2.0.tgz
-
-# 在你的产品仓库：把 tgz 放进 vendor/ 并提交到你的仓库（保证 CI 可重复安装）
-mkdir -p vendor && cp <平台仓库>/dist-sdk/z-cloudbase-*.tgz vendor/
-npm i ./vendor/z-cloudbase-web-0.2.0.tgz          # 前端
-npm i ./vendor/z-cloudbase-server-0.2.0.tgz       # 后端（Node 20+ / Cloudflare Workers / 任何有 fetch 的运行时）
+npm i @z-cloudbase/web       # 前端
+npm i @z-cloudbase/server    # 后端（Node 20+ / Cloudflare Workers / 任何有 fetch 的运行时）
 ```
 
+自托管平台改了 SDK、或不能访问 npm 时，也可以用 tgz 包：平台方在 z-cloudbase 仓库根目录执行 `pnpm sdk:pack`（产物 `dist-sdk/z-cloudbase-web-<版本>.tgz`、`dist-sdk/z-cloudbase-server-<版本>.tgz`），产品仓库把 tgz 放进 `vendor/` 并提交，再 `npm i ./vendor/z-cloudbase-web-<版本>.tgz`。
+
 - 两个包都是 ESM，自带 TypeScript 类型；`@z-cloudbase/web` 只依赖 `jose`，压缩后约 37 KB（gzip 14 KB，含 jose；不用的模块可按 `@z-cloudbase/web/analytics` 等子路径单独引入）。
-- 升级：换掉 `vendor/` 里的 tgz 后重新 `npm i`。
+- 升级：`npm i @z-cloudbase/web@latest @z-cloudbase/server@latest`（用 tgz 时换掉 `vendor/` 里的文件后重新 `npm i`）。
 - 不用 JS 的客户端（原生 App、其他语言后端）：直接调 HTTP API（第 6 节）。
 
 ## 4. 前端：`@z-cloudbase/web`

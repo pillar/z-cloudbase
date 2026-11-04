@@ -2,7 +2,7 @@
 
 > Translation of [integration-guide.md](integration-guide.md) (Chinese, the maintained original). If the two differ, the Chinese version wins.
 >
-> Version: SDK 0.2.0 · updated 2026-11-04
+> Version: SDK 0.2.1 · updated 2026-11-04
 > This is the only instruction a product needs to integrate with this platform (a self-hosted instance of z-cloudbase). `https://id.example.com` / `https://api.example.com` / `https://console.example.com` below are placeholders: replace them with the addresses of your deployment (printed at the end of `pnpm platform:deploy`, or ask the platform administrator). Follow the "Execution checklist" in order; every step has a verifiable result. If you see behavior that differs from this document, record the request's `x-request-id` and the error code and report it to the platform team instead of working around it.
 
 ## 0. Execution checklist (the AI completes these in order)
@@ -58,20 +58,17 @@ export const PLATFORM = {
 
 ## 3. Install the SDK
 
-The SDK is not published to npm yet; use the tgz packages provided by the platform team:
+Install from npm:
 
 ```sh
-# The platform team runs this in the z-cloudbase repository root; the output is in dist-sdk/
-pnpm sdk:pack     # → dist-sdk/z-cloudbase-web-0.2.0.tgz, dist-sdk/z-cloudbase-server-0.2.0.tgz
-
-# In your product repository: put the tgz files in vendor/ and commit them (so CI installs are reproducible)
-mkdir -p vendor && cp <platform repo>/dist-sdk/z-cloudbase-*.tgz vendor/
-npm i ./vendor/z-cloudbase-web-0.2.0.tgz          # frontend
-npm i ./vendor/z-cloudbase-server-0.2.0.tgz       # backend (Node 20+ / Cloudflare Workers / any runtime with fetch)
+npm i @z-cloudbase/web       # frontend
+npm i @z-cloudbase/server    # backend (Node 20+ / Cloudflare Workers / any runtime with fetch)
 ```
 
+If your self-hosted platform changed the SDK, or npm is not reachable, use the tgz packages instead: the platform team runs `pnpm sdk:pack` in the z-cloudbase repository root (output `dist-sdk/z-cloudbase-web-<version>.tgz`, `dist-sdk/z-cloudbase-server-<version>.tgz`); the product repository commits them under `vendor/` and runs `npm i ./vendor/z-cloudbase-web-<version>.tgz`.
+
 - Both packages are ESM and ship TypeScript types; `@z-cloudbase/web` depends only on `jose` and is about 37 KB minified (14 KB gzip, including jose; modules you do not use can be imported separately via subpaths such as `@z-cloudbase/web/analytics`).
-- Upgrade: replace the tgz files in `vendor/` and run `npm i` again.
+- Upgrade: `npm i @z-cloudbase/web@latest @z-cloudbase/server@latest` (with tgz files, replace them in `vendor/` and run `npm i` again).
 - Clients that do not use JS (native apps, backends in other languages): call the HTTP API directly (section 6).
 
 ## 4. Frontend: `@z-cloudbase/web`
