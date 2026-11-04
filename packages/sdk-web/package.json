@@ -16,11 +16,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "jose": "^6.2.12"
+    "jose": "^6.2.14"
   },
   "devDependencies": {
     "@z-cloudbase/contracts": "workspace:*",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.12"
   },
   "version": "0.2.1",
   "license": "Apache-2.0",

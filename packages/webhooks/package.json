@@ -14,7 +14,7 @@
     "@z-cloudbase/security": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.12"
   },
   "sideEffects": false
 }
