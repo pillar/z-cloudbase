@@ -1,7 +1,9 @@
 name: Release
 
-# Push a tag such as v0.2.0: builds the SDK tarballs, publishes @z-cloudbase/web and @z-cloudbase/server
-# to npm (with provenance; needs the NPM_TOKEN repository secret) and attaches the tarballs to a GitHub release.
+# Push a tag such as v0.2.1: builds the SDK tarballs for @z-cloudbase/web and @z-cloudbase/server
+# and STAGES them on npm via trusted publishing (GitHub OIDC, no token), then attaches the tarballs to a GitHub
+# release. Each package lists pillar/z-cloudbase + release.yml as its Trusted Publisher (direct publish not allowed);
+# a maintainer publishes with `npm stage list @z-cloudbase/web` and `npm stage approve <id>` (2FA).
 on:
   push:
     tags: ['v*']
@@ -35,13 +37,12 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - run: pnpm sdk:pack
-      - name: Publish to npm
+      - name: Stage on npm (approve with 2FA to publish)
         run: |
+          npm install -g npm@11.19.0
           for tarball in dist-sdk/*.tgz; do
-            npm publish "./$tarball" --access public --provenance
+            npm stage publish "./$tarball" --access public
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: dist-sdk/*.tgz

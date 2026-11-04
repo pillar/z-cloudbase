@@ -772,7 +772,7 @@ Registered ──link(Provider)──> 要求 5 分钟内再认证 + state/nonce
 **版本与发布**
 - 版本号与根 `package.json` 的 `version` 一致（v3.1 为 `0.2.0`，与两个 SDK 相同），变更记录 `CHANGELOG.md`（Keep a Changelog）。部署记录 `.deploy/<prefix>.json` 保存 `version`、`commit`（工作区有改动时加 `-dirty`）、`deployedAt`。
 - CI（`.github/workflows/ci.yml`，push / PR）：安装（frozen lockfile）、`pnpm -r typecheck`、`pnpm -r test`、`pnpm test:scripts`、`pnpm sdk:pack`；`pnpm test:e2e` 为独立 job。Node 24，pnpm 取自 `packageManager`。依赖更新用 Dependabot（npm 每周分组，github-actions 每周）。
-- 发布（`release.yml`，tag `v*`）：校验 tag 与版本一致，构建 SDK tarball，以 npm provenance 发布 `@z-cloudbase/web` 与 `@z-cloudbase/server`（secret `NPM_TOKEN`），tarball 附到 GitHub Release。本仓库不执行真实发布。
+- 发布（`release.yml`，tag `v*`）：校验 tag 与版本一致，构建 SDK tarball，经 npm trusted publishing（GitHub OIDC，无 token）把 `@z-cloudbase/web` 与 `@z-cloudbase/server` 暂存（`npm stage publish`；trusted publisher 不允许直接发布），维护者用 `npm stage approve <id>`（2FA）正式发布；tarball 附到 GitHub Release。0.2.0 首次由维护者本机发布（trusted publisher 只能配置在已存在的包上）。
 
 **本地一条命令开发 `pnpm dev`**：复用 `tests/e2e/local-stack`。状态目录默认 `.wrangler-state`（gitignored）：执行迁移；生成并保存本地 `AUTH_SECRET`（`.wrangler-state/dev-secrets.json`，权限 600，重启后签名密钥仍可解密）；固定端口（identity / api / gateway 8787，控制台 5173，可用 `--port` / `--console-port` 修改）；首次运行创建管理员（随机密码只打印一次）；每次启动都更新控制台回调地址；启动控制台 Vite dev server 指向本地栈；打印 URL；Ctrl-C 停止全部子进程。
 
