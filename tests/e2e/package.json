@@ -11,12 +11,12 @@
     "@z-cloudbase/contracts": "workspace:*",
     "@z-cloudbase/server": "workspace:*",
     "@z-cloudbase/web": "workspace:*",
-    "jose": "^6.2.12"
+    "jose": "^6.2.14"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "playwright-core": "1.56.1",
-    "vitest": "^4.1.0",
-    "wrangler": "^4.148.0"
+    "@types/node": "^24.19.2",
+    "playwright-core": "1.64.1",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.156.0"
   }
 }

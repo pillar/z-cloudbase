@@ -62,11 +62,11 @@ describe('gate 3: authorization code + PKCE', () => {
     const cb = await authorizeWithLogin(jar, email, { productId: 'product_a', env: 'prod', state: 's', nonce: 'n', challenge });
     const code = cb.searchParams.get('code')!;
     const res = await exchangeCode('product_a', 'prod', code, (await pkcePair()).verifier);
-    // Better Auth answers 401 `invalid_request` ("code verification failed"); RFC 6749 §5.2
-    // would be 400 `invalid_grant`. Rejected either way — recorded as a conformance note.
-    expect(res.status).toBe(401);
+    // RFC 6749 §5.2 / RFC 7636 §4.6: a failed PKCE check is 400 `invalid_grant`
+    // (Better Auth up to 1.7.7 answered 401 `invalid_request`).
+    expect(res.status).toBe(400);
     const err = await res.json<{ error: string; access_token?: string }>();
-    expect(err.error).toBe('invalid_request');
+    expect(err.error).toBe('invalid_grant');
     expect(err.access_token).toBeUndefined();
     // The code was consumed by the failed attempt; the right verifier cannot redeem it now.
     const retry = await exchangeCode('product_a', 'prod', code, verifier);

@@ -9,25 +9,25 @@
     "test": "wrangler types >/dev/null && vitest run"
   },
   "dependencies": {
-    "@better-auth/core": "1.7.7",
-    "@better-auth/oauth-provider": "1.7.7",
-    "@better-auth/passkey": "1.7.7",
-    "@better-auth/utils": "0.4.2",
-    "@better-fetch/fetch": "1.3.2",
+    "@better-auth/core": "1.7.14",
+    "@better-auth/oauth-provider": "1.7.14",
+    "@better-auth/passkey": "1.7.14",
+    "@better-auth/utils": "0.5.1",
+    "@better-fetch/fetch": "1.3.3",
     "@z-cloudbase/contracts": "workspace:*",
     "@z-cloudbase/security": "workspace:*",
     "@z-cloudbase/webhooks": "workspace:*",
-    "better-auth": "1.7.7",
-    "better-call": "1.4.0",
-    "hono": "^4.13.13",
+    "better-auth": "1.7.14",
+    "better-call": "1.4.4",
+    "hono": "^4.13.16",
     "worker-mailer": "1.3.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.3.7",
+    "@cloudflare/vitest-plugin": "^1.4.11",
     "@z-cloudbase/testing": "workspace:*",
-    "jose": "^6.2.12",
-    "vitest": "^4.1.0",
-    "wrangler": "^4.148.0"
+    "jose": "^6.2.14",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.156.0"
   }
 }
