@@ -63,6 +63,7 @@ pnpm platform:deploy --dry-run [--prefix x --name "Y" --domain z.com]    # 只�
 pnpm platform:deploy --admin-email <email> [...]   # 真实部署（远程，需用户授权）
 pnpm platform:reset-admin --email <email> [--disable-2fa]   # 管理员找回密码（远程，需用户授权）
 pnpm platform:destroy --prefix <p> --dry-run   # 打印删除计划（本地）；真实删除需要 --confirm <p> 或交互输入，属远程操作，需用户授权
+pnpm dedupe --check                     # lockfile 没有可合并的重复包（CI 会检查；不通过就 pnpm dedupe 后提交 lockfile）
 pnpm sdk:pack                           # 构建可分发的 SDK：dist-sdk/z-cloudbase-web-<v>.tgz、z-cloudbase-server-<v>.tgz
 ```
 

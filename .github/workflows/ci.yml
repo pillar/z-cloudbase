@@ -26,6 +26,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Fails when the lockfile holds packages that could be deduplicated, e.g. two @better-auth/core
+      # copies after a Dependabot update (fix: `pnpm dedupe` and commit the lockfile).
+      - name: Lockfile has no duplicate packages
+        run: pnpm dedupe --check
       - run: pnpm -r typecheck
       - run: pnpm -r test
       - run: pnpm test:scripts
