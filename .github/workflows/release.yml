@@ -38,7 +38,7 @@ jobs:
       - name: Publish to npm
         run: |
           for tarball in dist-sdk/*.tgz; do
-            npm publish "$tarball" --access public --provenance
+            npm publish "./$tarball" --access public --provenance
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
