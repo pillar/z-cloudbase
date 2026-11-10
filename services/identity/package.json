@@ -19,15 +19,15 @@
     "@z-cloudbase/webhooks": "workspace:*",
     "better-auth": "1.7.15",
     "better-call": "1.4.4",
-    "hono": "^4.13.16",
-    "worker-mailer": "1.3.0",
+    "hono": "^4.13.17",
+    "worker-mailer": "1.3.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.11",
+    "@cloudflare/vitest-plugin": "^1.6.0",
     "@z-cloudbase/testing": "workspace:*",
     "jose": "^6.2.14",
     "vitest": "^4.1.12",
-    "wrangler": "^4.156.0"
+    "wrangler": "^4.158.0"
   }
 }
