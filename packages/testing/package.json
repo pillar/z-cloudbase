@@ -8,6 +8,6 @@
   },
   "dependencies": {
     "@z-cloudbase/contracts": "workspace:*",
-    "jose": "^6.2.14"
+    "jose": "^6.2.17"
   }
 }
