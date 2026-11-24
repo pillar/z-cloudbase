@@ -16,7 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "jose": "^6.2.14"
+    "jose": "^6.2.18"
   },
   "devDependencies": {
     "@z-cloudbase/contracts": "workspace:*",

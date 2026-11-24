@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@z-cloudbase/contracts": "workspace:*",
-    "hono": "^4.13.16",
-    "jose": "^6.2.14"
+    "hono": "^4.13.19",
+    "jose": "^6.2.18"
   },
   "devDependencies": {
     "@z-cloudbase/testing": "workspace:*",
